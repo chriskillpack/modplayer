@@ -1,3 +1,7 @@
+// MOD player in Go
+// Useful notes https://github.com/AntonioND/gbt-player/blob/master/mod2gbt/FMODDOC.TXT
+// Uses portaudio for audio output
+
 package main
 
 import (
@@ -6,6 +10,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"time"
+
+	"github.com/gordonklaus/portaudio"
 )
 
 // ModHeader TODO
@@ -29,7 +35,19 @@ type sample struct {
 	volume    int
 	loopStart int
 	loopLen   int
+	data      []byte
 }
+
+const (
+	outputBufferHz      = 44100
+	outputBufferSamples = 8192
+	retraceNTSCHz       = 7159090.5 // Amiga NTSC vertical retrace timing
+	globalVolume        = 16        // Hack for now to boost volume
+
+	// MOD note effects
+	effectPatternBrk = 0xD
+	effectSetSpeed   = 0xF
+)
 
 var (
 	// Amiga period values. This table is used to map the note period
@@ -48,11 +66,6 @@ var (
 	}
 )
 
-const (
-	effectPatternBrk = 0xD
-	effectSetSpeed   = 0xF
-)
-
 func decodeNote(note []byte) (int, int, int, int) {
 	sampNum := note[0]&0xF0 + note[2]>>4
 	prdFreq := int(int(note[0]&0xF)<<8 + int(note[1]))
@@ -62,7 +75,7 @@ func decodeNote(note []byte) (int, int, int, int) {
 	return int(sampNum), prdFreq, int(effNum), int(effParm)
 }
 
-func readSample(r *bytes.Reader) (*sample, error) {
+func readSampleInfo(r *bytes.Reader) (*sample, error) {
 	var smp sample
 	tmp := make([]byte, 22)
 	var err error
@@ -124,25 +137,6 @@ func noteStr(note int) string {
 	return fmt.Sprintf("%s%d", notes[note%12], note/12+3)
 }
 
-type player struct {
-	curSpeed   int
-	lastSpeed  int
-	rowCounter int
-	orderIdx   int
-
-	// timing stuff
-	delay int
-}
-
-func newplayer(speed int) *player {
-	p := &player{}
-	p.curSpeed = speed
-	return p
-}
-
-func (p *player) tick(t time.Time) {
-}
-
 func main() {
 	mod, err := ioutil.ReadFile("space_debris.mod")
 	if err != nil {
@@ -158,9 +152,16 @@ func main() {
 	buf.Read(y)
 	hdr.title = string(y)
 
-	// Read sample information
+	portaudio.Initialize()
+	defer portaudio.Terminate()
+	outAudioBuf := make([]int16, outputBufferSamples)
+	_ = outAudioBuf
+	stream, err := portaudio.OpenDefaultStream(0, 2, float64(outputBufferHz), len(outAudioBuf), &outAudioBuf)
+	defer stream.Close()
+
+	// Read sample information (sample data is read later)
 	for i := 0; i < 31; i++ {
-		s, err := readSample(buf)
+		s, err := readSampleInfo(buf)
 		if err != nil {
 			panic(err)
 		}
@@ -192,21 +193,24 @@ func main() {
 	hdr.patterns = make([]byte, hdr.nChannels*(hdr.nPatterns+1)*64*4)
 	buf.Read(hdr.patterns)
 
+	// Read sample data
+	for i := 0; i < 31; i++ {
+		hdr.samples[i].data = make([]byte, hdr.samples[i].length)
+		buf.Read(hdr.samples[i].data)
+	}
+
 	songEndCh := make(chan int) // used to indicate end of song reached
 
 	hz := (hdr.tempo * 2) / 5
 	delay := time.Duration((1000 * time.Millisecond) / time.Duration(hz))
-	fmt.Printf("delay %d\n", delay)
 
-	player := newplayer(hdr.speed)
-
-	fmt.Println("3")
-	time.Sleep(1 * time.Second)
-	fmt.Println("2")
-	time.Sleep(1 * time.Second)
-	fmt.Println("1")
-	time.Sleep(1 * time.Second)
-	fmt.Println("start")
+	// fmt.Println("3")
+	// time.Sleep(1 * time.Second)
+	// fmt.Println("2")
+	// time.Sleep(1 * time.Second)
+	// fmt.Println("1")
+	// time.Sleep(1 * time.Second)
+	// fmt.Println("start")
 
 	lastSpeed := 0
 	ordIdx := 0
@@ -217,30 +221,55 @@ func main() {
 	defer ticker.Stop()
 
 	var lastTick time.Time
-	var myLastTick time.Time
 	var tickAccumulator time.Duration
+
+	stream.Start()
+	defer stream.Stop()
+
+	var pbcur float32
+	sampIdx := 8
 
 	go func() {
 		for t := range ticker.C {
-			player.tick(t)
-
-			if myLastTick.IsZero() {
-				myLastTick = t
+			if lastTick.IsZero() {
+				lastTick = t
 			}
-			tickTimeDelta := t.Sub(myLastTick)
+			tickTimeDelta := t.Sub(lastTick)
 			if tickTimeDelta < 0 {
 				tickTimeDelta = 0
 			}
-			//fmt.Printf("tickTimeDelta %v\n", tickTimeDelta)
 			if tickTimeDelta > 500*time.Millisecond {
 				tickTimeDelta = 500 * time.Millisecond
 			}
-			myLastTick = t
+			lastTick = t
 			tickAccumulator += tickTimeDelta
-			//fmt.Printf("tickAcc	%v\n", tickAccumulator)
-			//if t.Sub(lastTick) > delay {
+
+			// Play instrument
+			playbackHz := int(retraceNTSCHz / float32(periodTable[0*12+5])) // F-4
+			dr := float32(playbackHz) / float32(outputBufferHz)
+			wcur := 0
+			for wcur < outputBufferSamples {
+				if pbcur < float32(hdr.samples[sampIdx].length-1) {
+					pbicur := int(pbcur)
+					samp := int16(hdr.samples[sampIdx].data[pbicur]-128) * globalVolume
+					// Write same sample to both channels for now (center pan)
+					outAudioBuf[wcur] = samp
+					wcur++
+					outAudioBuf[wcur] = samp
+					wcur++
+					pbcur += dr
+				} else {
+					pbcur = 0
+
+					// Uncomment below to cycle through instruments
+					// sampIdx++
+					// if sampIdx > len(hdr.samples)-1 {
+					// 	sampIdx = 0
+					// }
+				}
+			}
+			stream.Write()
 			if tickAccumulator > delay {
-				//fmt.Printf("timeAccum %v\tdelay %v\n", tickAccumulator, delay)
 				tickAccumulator -= delay
 
 				if lastSpeed == 0 {
@@ -284,8 +313,6 @@ func main() {
 					}
 					lastSpeed = 0
 				}
-				//fmt.Printf("%d\n", t.Sub(lastTick))
-				lastTick = t
 			}
 		}
 	}()

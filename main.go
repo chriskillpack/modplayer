@@ -9,7 +9,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io/ioutil"
-	"time"
 
 	"github.com/gordonklaus/portaudio"
 )
@@ -38,6 +37,53 @@ type sample struct {
 	data      []byte
 }
 
+type channel struct {
+	sampleIdx      int
+	period         int
+	volume         int
+	samplePosition uint
+
+	effect int
+	param  int
+}
+
+type Player struct {
+	hdr               ModHeader
+	samplingFrequency int
+
+	// song configuration
+	tempo          int
+	speed          int
+	samplesPerTick int
+
+	// These next fields track player position in the song
+	tickSamplePos int // the number of samples in the tick
+	tick          int // decrementing counter for number of ticks per row
+	rowCounter    int // which row in the order
+	ordIdx        int // current order of the song
+
+	channels []channel
+}
+
+func (p *Player) setTempo(tempo int) {
+	p.samplesPerTick = ((p.samplingFrequency << 1) + (p.samplingFrequency >> 1)) / tempo
+	p.tempo = tempo
+}
+
+func NewPlayer(song ModHeader, samplingFrequency int, endCh chan struct{}) *Player {
+	player := &Player{samplingFrequency: samplingFrequency, hdr: song, speed: 6}
+	player.setTempo(125)
+	player.channels = make([]channel, song.nChannels)
+	for i := 0; i < song.nChannels; i++ {
+		player.channels[i].sampleIdx = -1
+	}
+
+	// TODO: signal end of song
+	_ = endCh
+
+	return player
+}
+
 const (
 	outputBufferHz      = 44100
 	outputBufferSamples = 8192
@@ -45,6 +91,7 @@ const (
 	globalVolume        = 16        // Hack for now to boost volume
 
 	// MOD note effects
+	effectVolume     = 0xA
 	effectPatternBrk = 0xD
 	effectSetSpeed   = 0xF
 )
@@ -67,6 +114,7 @@ var (
 )
 
 func decodeNote(note []byte) (int, int, int, int) {
+	// fmt.Printf("decodeNote %s\n", hex.EncodeToString(note))
 	sampNum := note[0]&0xF0 + note[2]>>4
 	prdFreq := int(int(note[0]&0xF)<<8 + int(note[1]))
 	effNum := note[2] & 0xF
@@ -137,6 +185,12 @@ func noteStr(note int) string {
 	return fmt.Sprintf("%s%d", notes[note%12], note/12+3)
 }
 
+// TODO
+// DONE 1) Verify portaudio sound for known sample (e.g. 5Khz sine wave)
+// N/A 2) Verify portaudio buffering of data sent to it
+// DONE 3) Switch player to think in terms of generating audio samples and not passing of time
+// 4) Figure out how to disable portaudio debug text
+
 func main() {
 	mod, err := ioutil.ReadFile("space_debris.mod")
 	if err != nil {
@@ -152,12 +206,15 @@ func main() {
 	buf.Read(y)
 	hdr.title = string(y)
 
-	portaudio.Initialize()
-	defer portaudio.Terminate()
+	initErr := portaudio.Initialize()
+	defer func() {
+		if initErr != nil {
+			portaudio.Terminate()
+		}
+	}()
+
 	outAudioBuf := make([]int16, outputBufferSamples)
 	_ = outAudioBuf
-	stream, err := portaudio.OpenDefaultStream(0, 2, float64(outputBufferHz), len(outAudioBuf), &outAudioBuf)
-	defer stream.Close()
 
 	// Read sample information (sample data is read later)
 	for i := 0; i < 31; i++ {
@@ -199,10 +256,12 @@ func main() {
 		buf.Read(hdr.samples[i].data)
 	}
 
-	songEndCh := make(chan int) // used to indicate end of song reached
+	songEndCh := make(chan struct{}) // used to indicate end of song reached
 
-	hz := (hdr.tempo * 2) / 5
-	delay := time.Duration((1000 * time.Millisecond) / time.Duration(hz))
+	player := NewPlayer(hdr, outputBufferHz, songEndCh)
+
+	stream, err := portaudio.OpenDefaultStream(0, 2, float64(outputBufferHz), portaudio.FramesPerBufferUnspecified, player.audioCB)
+	defer stream.Close()
 
 	// fmt.Println("3")
 	// time.Sleep(1 * time.Second)
@@ -212,110 +271,149 @@ func main() {
 	// time.Sleep(1 * time.Second)
 	// fmt.Println("start")
 
-	lastSpeed := 0
-	ordIdx := 0
-	rowCounter := 0
-	curSpeed := hdr.speed
-
-	ticker := time.NewTicker(1 * time.Millisecond)
-	defer ticker.Stop()
-
-	var lastTick time.Time
-	var tickAccumulator time.Duration
-
 	stream.Start()
 	defer stream.Stop()
 
-	var pbcur float32
-	sampIdx := 8
+	_ = <-songEndCh // wait for song to end
+}
 
-	go func() {
-		for t := range ticker.C {
-			if lastTick.IsZero() {
-				lastTick = t
-			}
-			tickTimeDelta := t.Sub(lastTick)
-			if tickTimeDelta < 0 {
-				tickTimeDelta = 0
-			}
-			if tickTimeDelta > 500*time.Millisecond {
-				tickTimeDelta = 500 * time.Millisecond
-			}
-			lastTick = t
-			tickAccumulator += tickTimeDelta
+func (p *Player) channelTick(c *channel) {
+	switch c.effect {
+	case effectVolume:
+		// vol := c.volume
+		// if (c.param )
+	}
+}
 
-			// Play instrument
-			playbackHz := int(retraceNTSCHz / float32(periodTable[0*12+5])) // F-4
-			dr := float32(playbackHz) / float32(outputBufferHz)
-			wcur := 0
-			for wcur < outputBufferSamples {
-				if pbcur < float32(hdr.samples[sampIdx].length-1) {
-					pbicur := int(pbcur)
-					samp := int16(hdr.samples[sampIdx].data[pbicur]-128) * globalVolume
-					// Write same sample to both channels for now (center pan)
-					outAudioBuf[wcur] = samp
-					wcur++
-					outAudioBuf[wcur] = samp
-					wcur++
-					pbcur += dr
-				} else {
-					pbcur = 0
+func (p *Player) sequenceTick() {
+	p.tick--
+	if p.tick <= 0 {
+		p.tick = p.speed
 
-					// Uncomment below to cycle through instruments
-					// sampIdx++
-					// if sampIdx > len(hdr.samples)-1 {
-					// 	sampIdx = 0
-					// }
+		// print out info the row
+		pattern := int(p.hdr.orders[p.ordIdx])
+		rowDataIdx := (pattern*64 + p.rowCounter) * 4 * p.hdr.nChannels
+		fmt.Printf("%02X|", p.rowCounter)
+		for i := 0; i < p.hdr.nChannels; i++ {
+			channel := &p.channels[i]
+
+			sampNum, prdFreq, effNum, effParm := decodeNote(p.hdr.patterns[rowDataIdx : rowDataIdx+4])
+			ni := periodToNote(prdFreq)
+
+			// TODO: figure out conditions on when to trigger correctly
+
+			if ni != -1 {
+				// If we received a legit sample number then we are triggering a note
+				if sampNum > 0 && sampNum < 32 {
+					channel.sampleIdx = sampNum - 1 // sample numbers are 1-based in MOD format
+					channel.samplePosition = 0
+					channel.period = prdFreq
+					channel.volume = p.hdr.samples[sampNum-1].volume
+					channel.effect = effNum
+					channel.param = effParm
 				}
 			}
-			stream.Write()
-			if tickAccumulator > delay {
-				tickAccumulator -= delay
 
-				if lastSpeed == 0 {
-					pattern := int(hdr.orders[ordIdx])
-					rowDataIdx := (pattern*64 + rowCounter) * 4 * hdr.nChannels
-					fmt.Printf("%02X|", rowCounter)
-					for i := 0; i < hdr.nChannels; i++ {
-						sampNum, prdFreq, effNum, effParm := decodeNote(hdr.patterns[rowDataIdx : rowDataIdx+4])
-						ni := periodToNote(prdFreq)
-						fmt.Printf("%s %2X %X%02X", noteStr(ni), sampNum, effNum, effParm)
-						if i < hdr.nChannels-1 {
-							fmt.Print("|")
-						}
-						switch effNum {
-						case effectSetSpeed:
-							curSpeed = effParm
-							break
-						case effectPatternBrk:
-							ordIdx++
-							// TODO handle looping
-							rowCounter = (effParm>>4)*10 + effParm&0xf
-							// TODO skipping first row of pattern?
-							break
-						}
-						rowDataIdx += 4
-					}
-					fmt.Println()
-				} else {
-					// This is where tick effects are processed
+			fmt.Printf("%s %2X %X%02X", noteStr(ni), sampNum, effNum, effParm)
+			if i < p.hdr.nChannels-1 {
+				fmt.Print("|")
+			}
+			switch effNum {
+			case effectVolume:
+				vol := channel.volume
+				vol += effParm
+				if vol > 64 {
+					vol = 64
 				}
+				if vol < 0 {
+					vol = 0
+				}
+				channel.volume = vol
+			case effectSetSpeed:
+				p.speed = effParm
+				break
+			case effectPatternBrk:
+				p.ordIdx++
+				// TODO handle looping
+				p.rowCounter = (effParm>>4)*10 + effParm&0xf
+				// TODO skipping first row of pattern?
+				break
+			}
+			rowDataIdx += 4
+		}
+		fmt.Println()
 
-				lastSpeed++
-				if lastSpeed >= curSpeed {
-					rowCounter++
-					if rowCounter >= 64 {
-						rowCounter = 0
-						ordIdx++
-						if ordIdx >= hdr.nOrders {
-							close(songEndCh) // close channel to indicate end of song reached
-						}
-					}
-					lastSpeed = 0
-				}
+		p.rowCounter++
+		if p.rowCounter >= 64 {
+			p.rowCounter = 0
+			p.ordIdx++
+			if p.ordIdx >= p.hdr.nOrders {
+				p.ordIdx = 0
 			}
 		}
-	}()
+	} else {
+		// channel tick
+		for i := 0; i < p.hdr.nChannels; i++ {
+			p.channelTick(&p.channels[i])
+		}
+	}
+}
 
-	_ = <-songEndCh // wait for song to end
+func (p *Player) generateAudio(out [][]int16, nSamples, offset int) {
+	for s := offset; s < offset+nSamples; s++ {
+		out[0][s] = 0
+		out[1][s] = 0
+	}
+
+	for chanIdx := range p.channels {
+		channel := &p.channels[chanIdx]
+
+		if channel.sampleIdx == -1 {
+			continue
+		}
+
+		sample := &p.hdr.samples[channel.sampleIdx]
+
+		playbackHz := int(retraceNTSCHz / float32(channel.period*2))
+		dr := uint(playbackHz<<16) / outputBufferHz
+		pos := channel.samplePosition
+		for off := offset; off < offset+nSamples; off++ {
+			// WARNING: no clipping protection when mixing in the sample (hence the downshift)
+			samp := (int16(sample.data[pos>>16]-128) * int16(channel.volume)) >> 2
+			out[0][off] += samp
+			out[1][off] += samp
+
+			pos += dr
+			if pos >= uint(sample.length<<16) {
+				if sample.loopLen >= 0 {
+					pos = uint(sample.loopStart) << 16
+				} else {
+					channel.sampleIdx = -1 // turn off the channel
+				}
+				break
+			}
+		}
+		channel.samplePosition = pos
+	}
+}
+
+func (p *Player) audioCB(out [][]int16) {
+	count := len(out[0])
+	offset := 0
+	for count > 0 {
+		remain := p.samplesPerTick - p.tickSamplePos
+		if remain > count {
+			remain = count
+		}
+
+		p.generateAudio(out, remain, offset)
+		offset += remain
+
+		p.tickSamplePos += remain
+		if p.tickSamplePos == p.samplesPerTick {
+			p.sequenceTick()
+			p.tickSamplePos = 0
+		}
+		count -= remain
+	}
 }

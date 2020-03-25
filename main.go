@@ -44,6 +44,8 @@ type sample struct {
 type channel struct {
 	sampleIdx      int
 	period         int
+	portaPeriod    int // Portamento destination as a period
+	portaSpeed     int
 	volume         int
 	samplePosition uint
 
@@ -95,6 +97,7 @@ const (
 	globalVolume        = 16        // Hack for now to boost volume
 
 	// MOD note effects
+	effectPortaToNote  = 0x3
 	effectSampleOffset = 0x9
 	effectVolumeSlide  = 0xA
 	effectSetVolume    = 0xC
@@ -324,6 +327,20 @@ func main() {
 
 func (p *Player) channelTick(c *channel, ci int) {
 	switch c.effect {
+	case effectPortaToNote:
+		period := c.period
+		if period < c.portaPeriod {
+			period += c.portaSpeed
+			if period > c.portaPeriod {
+				period = c.portaPeriod
+			}
+		} else if period > c.portaPeriod {
+			period -= c.portaSpeed
+			if period < c.portaPeriod {
+				period = c.portaPeriod
+			}
+		}
+		c.period = period
 	case effectVolumeSlide:
 		vol := c.volume
 		if (c.param >> 4) > 0 {
@@ -363,10 +380,11 @@ func (p *Player) sequenceTick() {
 			}
 			// If there is a period...
 			if period > 0 {
-				// ... reset the period
-				channel.period = period
+				channel.portaPeriod = period
 				// ... and restart the sample if effect isn't 3, 5 or 0xEDx
-				if effect != 3 && effect != 5 && !(effect == 0xE && param>>4 == 0xD) {
+				if effect != effectPortaToNote && effect != 5 && !(effect == 0xE && param>>4 == 0xD) {
+					// ... reset the period
+					channel.period = period
 					channel.samplePosition = 0
 				}
 			}
@@ -378,10 +396,14 @@ func (p *Player) sequenceTick() {
 				fmt.Print("|")
 			}
 			switch effect {
+			case effectPortaToNote:
+				if param > 0 {
+					channel.portaSpeed = int(param)
+				}
 			case effectSetSpeed:
 				p.speed = int(param)
 			case effectSampleOffset:
-				channel.samplePosition = uint(param) << 8
+				channel.samplePosition = uint(param) << 24
 			case effectSetVolume:
 				channel.volume = int(param)
 			case effectPatternBrk:

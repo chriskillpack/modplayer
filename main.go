@@ -7,10 +7,14 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"flag"
 	"fmt"
 	"io/ioutil"
+	"log"
+	"os"
 
 	"github.com/gordonklaus/portaudio"
+	"github.com/youpy/go-wav"
 )
 
 // ModHeader TODO
@@ -43,8 +47,8 @@ type channel struct {
 	volume         int
 	samplePosition uint
 
-	effect int
-	param  int
+	effect byte
+	param  byte
 }
 
 type Player struct {
@@ -91,9 +95,11 @@ const (
 	globalVolume        = 16        // Hack for now to boost volume
 
 	// MOD note effects
-	effectVolume     = 0xA
-	effectPatternBrk = 0xD
-	effectSetSpeed   = 0xF
+	effectSampleOffset = 0x9
+	effectVolumeSlide  = 0xA
+	effectSetVolume    = 0xC
+	effectPatternBrk   = 0xD
+	effectSetSpeed     = 0xF
 )
 
 var (
@@ -113,14 +119,13 @@ var (
 	}
 )
 
-func decodeNote(note []byte) (int, int, int, int) {
-	// fmt.Printf("decodeNote %s\n", hex.EncodeToString(note))
+func decodeNote(note []byte) (int, int, byte, byte) {
 	sampNum := note[0]&0xF0 + note[2]>>4
-	prdFreq := int(int(note[0]&0xF)<<8 + int(note[1]))
+	period := int(int(note[0]&0xF)<<8 + int(note[1]))
 	effNum := note[2] & 0xF
 	effParm := note[3]
 
-	return int(sampNum), prdFreq, int(effNum), int(effParm)
+	return int(sampNum), period, effNum, effParm
 }
 
 func readSampleInfo(r *bytes.Reader) (*sample, error) {
@@ -192,7 +197,15 @@ func noteStr(note int) string {
 // 4) Figure out how to disable portaudio debug text
 
 func main() {
-	mod, err := ioutil.ReadFile("space_debris.mod")
+	if len(os.Args) < 2 {
+		log.Fatal("Missing MOD filename")
+	}
+
+	wavOut := flag.String("wav", "", "output to a WAVE file")
+	_ = wavOut
+	flag.Parse()
+
+	mod, err := ioutil.ReadFile(flag.Args()[0])
 	if err != nil {
 		panic(err)
 	}
@@ -260,28 +273,71 @@ func main() {
 
 	player := NewPlayer(hdr, outputBufferHz, songEndCh)
 
-	stream, err := portaudio.OpenDefaultStream(0, 2, float64(outputBufferHz), portaudio.FramesPerBufferUnspecified, player.audioCB)
-	defer stream.Close()
+	if *wavOut == "" {
+		stream, err := portaudio.OpenDefaultStream(0, 2, float64(outputBufferHz), portaudio.FramesPerBufferUnspecified, player.audioCB)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer stream.Close()
 
-	// fmt.Println("3")
-	// time.Sleep(1 * time.Second)
-	// fmt.Println("2")
-	// time.Sleep(1 * time.Second)
-	// fmt.Println("1")
-	// time.Sleep(1 * time.Second)
-	// fmt.Println("start")
+		// fmt.Println("3")
+		// time.Sleep(1 * time.Second)
+		// fmt.Println("2")
+		// time.Sleep(1 * time.Second)
+		// fmt.Println("1")
+		// time.Sleep(1 * time.Second)
+		// fmt.Println("start")
 
-	stream.Start()
-	defer stream.Stop()
+		stream.Start()
+		defer stream.Stop()
 
-	_ = <-songEndCh // wait for song to end
+		_ = <-songEndCh // wait for song to end
+	} else {
+		wavF, err := os.Create(*wavOut)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer wavF.Close()
+
+		ww := wav.NewWriter(wavF, 1000*1024, 2, outputBufferHz, 16)
+
+		audioOut := make([][]int16, 2)
+		for i := 0; i < 2; i++ {
+			audioOut[i] = make([]int16, 1024)
+		}
+
+		// TODO: Get this working completely
+		for f := 0; f < 1000; f++ {
+			player.audioCB(audioOut)
+			magic := make([]wav.Sample, 1024)
+			for i := 0; i < 1024; i++ {
+				magic[i].Values[0] = int(audioOut[0][i])
+				magic[i].Values[1] = int(audioOut[1][i])
+			}
+			if err := ww.WriteSamples(magic); err != nil {
+				log.Fatal(err)
+			}
+		}
+
+	}
 }
 
-func (p *Player) channelTick(c *channel) {
+func (p *Player) channelTick(c *channel, ci int) {
 	switch c.effect {
-	case effectVolume:
-		// vol := c.volume
-		// if (c.param )
+	case effectVolumeSlide:
+		vol := c.volume
+		if (c.param >> 4) > 0 {
+			vol += int(c.param >> 4)
+			if vol > 64 {
+				vol = 64
+			}
+		} else if c.param != 0 {
+			vol -= int(c.param & 0xF)
+			if vol < 0 {
+				vol = 0
+			}
+		}
+		c.volume = vol
 	}
 }
 
@@ -290,54 +346,49 @@ func (p *Player) sequenceTick() {
 	if p.tick <= 0 {
 		p.tick = p.speed
 
-		// print out info the row
 		pattern := int(p.hdr.orders[p.ordIdx])
 		rowDataIdx := (pattern*64 + p.rowCounter) * 4 * p.hdr.nChannels
+
 		fmt.Printf("%02X|", p.rowCounter)
+
 		for i := 0; i < p.hdr.nChannels; i++ {
 			channel := &p.channels[i]
 
-			sampNum, prdFreq, effNum, effParm := decodeNote(p.hdr.patterns[rowDataIdx : rowDataIdx+4])
-			ni := periodToNote(prdFreq)
+			sampNum, period, effect, param := decodeNote(p.hdr.patterns[rowDataIdx : rowDataIdx+4])
 
-			// TODO: figure out conditions on when to trigger correctly
-
-			if ni != -1 {
-				// If we received a legit sample number then we are triggering a note
-				if sampNum > 0 && sampNum < 32 {
-					channel.sampleIdx = sampNum - 1 // sample numbers are 1-based in MOD format
+			// If there is an instrument number then reset the volume
+			if sampNum > 0 && sampNum < 32 {
+				channel.sampleIdx = sampNum - 1 // sample numbers are 1-based in MOD format
+				channel.volume = p.hdr.samples[sampNum-1].volume
+			}
+			// If there is a period...
+			if period > 0 {
+				// ... reset the period
+				channel.period = period
+				// ... and restart the sample if effect isn't 3, 5 or 0xEDx
+				if effect != 3 && effect != 5 && !(effect == 0xE && param>>4 == 0xD) {
 					channel.samplePosition = 0
-					channel.period = prdFreq
-					channel.volume = p.hdr.samples[sampNum-1].volume
-					channel.effect = effNum
-					channel.param = effParm
 				}
 			}
+			channel.effect = effect
+			channel.param = param
 
-			fmt.Printf("%s %2X %X%02X", noteStr(ni), sampNum, effNum, effParm)
+			fmt.Printf("%s %2X %X%02X", noteStr(periodToNote(period)), sampNum, effect, param)
 			if i < p.hdr.nChannels-1 {
 				fmt.Print("|")
 			}
-			switch effNum {
-			case effectVolume:
-				vol := channel.volume
-				vol += effParm
-				if vol > 64 {
-					vol = 64
-				}
-				if vol < 0 {
-					vol = 0
-				}
-				channel.volume = vol
+			switch effect {
 			case effectSetSpeed:
-				p.speed = effParm
-				break
+				p.speed = int(param)
+			case effectSampleOffset:
+				channel.samplePosition = uint(param) << 8
+			case effectSetVolume:
+				channel.volume = int(param)
 			case effectPatternBrk:
 				p.ordIdx++
 				// TODO handle looping
-				p.rowCounter = (effParm>>4)*10 + effParm&0xf
+				p.rowCounter = int((param>>4)*10 + param&0xF)
 				// TODO skipping first row of pattern?
-				break
 			}
 			rowDataIdx += 4
 		}
@@ -354,7 +405,7 @@ func (p *Player) sequenceTick() {
 	} else {
 		// channel tick
 		for i := 0; i < p.hdr.nChannels; i++ {
-			p.channelTick(&p.channels[i])
+			p.channelTick(&p.channels[i], i)
 		}
 	}
 }
@@ -399,6 +450,7 @@ func (p *Player) generateAudio(out [][]int16, nSamples, offset int) {
 
 func (p *Player) audioCB(out [][]int16) {
 	count := len(out[0])
+	// fmt.Println("count", count)
 	offset := 0
 	for count > 0 {
 		remain := p.samplesPerTick - p.tickSamplePos

@@ -169,6 +169,12 @@ func readSampleInfo(r *bytes.Reader) (*sample, error) {
 		return nil, err
 	}
 	smp.loopLen = int(binary.BigEndian.Uint16(tmp)) * 2
+
+	// Sanitize sample loop info (H/T micromod)
+	if smp.loopLen < 4 {
+		smp.loopLen = 0
+	}
+
 	return &smp, nil
 }
 
@@ -373,16 +379,21 @@ func (p *Player) sequenceTick() {
 
 			sampNum, period, effect, param := decodeNote(p.hdr.patterns[rowDataIdx : rowDataIdx+4])
 
-			// If there is an instrument number then reset the volume
+			// Getting note triggering logic correct was a pain, H/T micromod
+
+			// If there is an instrument/sample number then reset the volume
+			// sample numbers are 1-based in MOD format
 			if sampNum > 0 && sampNum < 32 {
-				channel.sampleIdx = sampNum - 1 // sample numbers are 1-based in MOD format
 				channel.volume = p.hdr.samples[sampNum-1].volume
 			}
 			// If there is a period...
 			if period > 0 {
+				// ... save it away as the porta to note destination
 				channel.portaPeriod = period
 				// ... and restart the sample if effect isn't 3, 5 or 0xEDx
 				if effect != effectPortaToNote && effect != 5 && !(effect == 0xE && param>>4 == 0xD) {
+					// ... assign the instrument
+					channel.sampleIdx = sampNum - 1
 					// ... reset the period
 					channel.period = period
 					channel.samplePosition = 0
@@ -446,7 +457,6 @@ func (p *Player) generateAudio(out [][]int16, nSamples, offset int) {
 		}
 
 		sample := &p.hdr.samples[channel.sampleIdx]
-
 		playbackHz := int(retraceNTSCHz / float32(channel.period*2))
 		dr := uint(playbackHz<<16) / outputBufferHz
 		pos := channel.samplePosition

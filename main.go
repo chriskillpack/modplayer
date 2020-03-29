@@ -47,6 +47,8 @@ type channel struct {
 	portaPeriod    int // Portamento destination as a period
 	portaSpeed     int
 	volume         int
+	pan            int // Pan position, 0=Full Left, 127=Full Right
+	fineTune       int
 	samplePosition uint
 
 	effect byte
@@ -81,7 +83,14 @@ func NewPlayer(song ModHeader, samplingFrequency int, endCh chan struct{}) *Play
 	player.setTempo(125)
 	player.channels = make([]channel, song.nChannels)
 	for i := 0; i < song.nChannels; i++ {
-		player.channels[i].sampleIdx = -1
+		channel := &player.channels[i]
+		channel.sampleIdx = -1
+		switch i {
+		case 0, 3:
+			channel.pan = 0
+		case 1, 2:
+			channel.pan = 127
+		}
 	}
 
 	// TODO: signal end of song
@@ -117,6 +126,15 @@ var (
 		214, 202, 190, 180, 170, 160, 151, 143, 135, 127, 120, 113,
 	}
 
+	// Fine tuning values from Micromod. Fine tuning goes from -8
+	// to +7 with 0 (no fine tuning) in the middle at index 8. The
+	// values are .12 fixed point and used to scale the note period.
+	// A fine tuning value of -8 is equal to the next lower note.
+	fineTuning = []int{
+		4340, 4308, 4277, 4247, 4216, 4186, 4156, 4126,
+		4096, 4067, 4037, 4008, 3979, 3951, 3922, 3894,
+	}
+
 	notes = []string{
 		"C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-",
 	}
@@ -149,11 +167,7 @@ func readSampleInfo(r *bytes.Reader) (*sample, error) {
 	if b, err = r.ReadByte(); err != nil {
 		return nil, err
 	}
-	if b > 7 {
-		smp.fineTune = 16 - int(b)
-	} else {
-		smp.fineTune = int(b)
-	}
+	smp.fineTune = int(b&7) - int(b&8) + 8
 
 	if b, err = r.ReadByte(); err != nil {
 		return nil, err
@@ -384,8 +398,12 @@ func (p *Player) sequenceTick() {
 			// If there is an instrument/sample number then reset the volume
 			// sample numbers are 1-based in MOD format
 			if sampNum > 0 && sampNum < 32 {
-				channel.volume = p.hdr.samples[sampNum-1].volume
+				smp := &p.hdr.samples[sampNum-1]
+
+				channel.volume = smp.volume
+				channel.fineTune = smp.fineTune
 			}
+
 			// If there is a period...
 			if period > 0 {
 				// ... save it away as the porta to note destination
@@ -395,7 +413,7 @@ func (p *Player) sequenceTick() {
 					// ... assign the instrument
 					channel.sampleIdx = sampNum - 1
 					// ... reset the period
-					channel.period = period
+					channel.period = (period * fineTuning[channel.fineTune]) >> 12
 					channel.samplePosition = 0
 				}
 			}
@@ -460,11 +478,13 @@ func (p *Player) generateAudio(out [][]int16, nSamples, offset int) {
 		playbackHz := int(retraceNTSCHz / float32(channel.period*2))
 		dr := uint(playbackHz<<16) / outputBufferHz
 		pos := channel.samplePosition
+		lvol := ((127 - channel.pan) * channel.volume) >> 7
+		rvol := (channel.pan * channel.volume) >> 7
 		for off := offset; off < offset+nSamples; off++ {
 			// WARNING: no clipping protection when mixing in the sample (hence the downshift)
-			samp := (int16(sample.data[pos>>16]-128) * int16(channel.volume)) >> 2
-			out[0][off] += samp
-			out[1][off] += samp
+			samp := int(sample.data[pos>>16] - 128)
+			out[0][off] += int16((samp * lvol) >> 2)
+			out[1][off] += int16((samp * rvol) >> 2)
 
 			pos += dr
 			if pos >= uint(sample.length<<16) {
@@ -482,7 +502,6 @@ func (p *Player) generateAudio(out [][]int16, nSamples, offset int) {
 
 func (p *Player) audioCB(out [][]int16) {
 	count := len(out[0])
-	// fmt.Println("count", count)
 	offset := 0
 	for count > 0 {
 		remain := p.samplesPerTick - p.tickSamplePos

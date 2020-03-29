@@ -38,7 +38,7 @@ type sample struct {
 	volume    int
 	loopStart int
 	loopLen   int
-	data      []byte
+	data      []int8
 }
 
 type channel struct {
@@ -288,8 +288,13 @@ func main() {
 
 	// Read sample data
 	for i := 0; i < 31; i++ {
-		hdr.samples[i].data = make([]byte, hdr.samples[i].length)
-		buf.Read(hdr.samples[i].data)
+		tmp := make([]byte, hdr.samples[i].length)
+		buf.Read(tmp)
+
+		hdr.samples[i].data = make([]int8, hdr.samples[i].length)
+		for j, sd := range tmp {
+			hdr.samples[i].data[j] = int8(sd)
+		}
 	}
 
 	songEndCh := make(chan struct{}) // used to indicate end of song reached
@@ -482,7 +487,7 @@ func (p *Player) generateAudio(out [][]int16, nSamples, offset int) {
 		rvol := (channel.pan * channel.volume) >> 7
 		for off := offset; off < offset+nSamples; off++ {
 			// WARNING: no clipping protection when mixing in the sample (hence the downshift)
-			samp := int(sample.data[pos>>16] - 128)
+			samp := int(sample.data[pos>>16])
 			out[0][off] += int16((samp * lvol) >> 2)
 			out[1][off] += int16((samp * rvol) >> 2)
 

@@ -493,7 +493,7 @@ func (p *Player) generateAudio(out [][]int16, nSamples, offset int) {
 
 			pos += dr
 			if pos >= uint(sample.length<<16) {
-				if sample.loopLen >= 0 {
+				if sample.loopLen > 0 {
 					pos = uint(sample.loopStart) << 16
 				} else {
 					channel.sampleIdx = -1 // turn off the channel

@@ -391,7 +391,7 @@ func (p *Player) sequenceTick() {
 		pattern := int(p.hdr.orders[p.ordIdx])
 		rowDataIdx := (pattern*64 + p.rowCounter) * 4 * p.hdr.nChannels
 
-		fmt.Printf("%02X|", p.rowCounter)
+		fmt.Printf("%02X %02X|", p.ordIdx, p.rowCounter)
 
 		for i := 0; i < p.hdr.nChannels; i++ {
 			channel := &p.channels[i]
@@ -413,13 +413,17 @@ func (p *Player) sequenceTick() {
 			if period > 0 {
 				// ... save it away as the porta to note destination
 				channel.portaPeriod = period
-				// ... and restart the sample if effect isn't 3, 5 or 0xEDx
+				// ... restart the sample if effect isn't 3, 5 or 0xEDx
 				if effect != effectPortaToNote && effect != 5 && !(effect == 0xE && param>>4 == 0xD) {
-					// ... assign the instrument
-					channel.sampleIdx = sampNum - 1
+					channel.samplePosition = 0
+
 					// ... reset the period
 					channel.period = (period * fineTuning[channel.fineTune]) >> 12
-					channel.samplePosition = 0
+
+					// ... assign the new instrument if one was provided
+					if sampNum > 0 && sampNum < 32 {
+						channel.sampleIdx = sampNum - 1
+					}
 				}
 			}
 			channel.effect = effect
@@ -485,6 +489,7 @@ func (p *Player) generateAudio(out [][]int16, nSamples, offset int) {
 		pos := channel.samplePosition
 		lvol := ((127 - channel.pan) * channel.volume) >> 7
 		rvol := (channel.pan * channel.volume) >> 7
+
 		for off := offset; off < offset+nSamples; off++ {
 			// WARNING: no clipping protection when mixing in the sample (hence the downshift)
 			samp := int(sample.data[pos>>16])

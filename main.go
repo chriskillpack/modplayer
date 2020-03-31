@@ -70,6 +70,8 @@ type Player struct {
 	rowCounter    int // which row in the order
 	ordIdx        int // current order of the song
 
+	endCh chan struct{} // indicates end of song reached
+
 	channels []channel
 }
 
@@ -78,7 +80,7 @@ func (p *Player) setTempo(tempo int) {
 	p.tempo = tempo
 }
 
-func NewPlayer(song ModHeader, samplingFrequency int, endCh chan struct{}) *Player {
+func NewPlayer(song ModHeader, samplingFrequency int) *Player {
 	player := &Player{samplingFrequency: samplingFrequency, hdr: song, speed: 6}
 	player.setTempo(125)
 	player.channels = make([]channel, song.nChannels)
@@ -93,8 +95,7 @@ func NewPlayer(song ModHeader, samplingFrequency int, endCh chan struct{}) *Play
 		}
 	}
 
-	// TODO: signal end of song
-	_ = endCh
+	player.endCh = make(chan struct{})
 
 	return player
 }
@@ -111,7 +112,11 @@ const (
 	effectVolumeSlide  = 0xA
 	effectSetVolume    = 0xC
 	effectPatternBrk   = 0xD
+	effectExtended     = 0xE
 	effectSetSpeed     = 0xF
+
+	effectExtendedFineVolSlideUp   = 0xA
+	effectExtendedFineVolSlideDown = 0xB
 )
 
 var (
@@ -297,9 +302,7 @@ func main() {
 		}
 	}
 
-	songEndCh := make(chan struct{}) // used to indicate end of song reached
-
-	player := NewPlayer(hdr, outputBufferHz, songEndCh)
+	player := NewPlayer(hdr, outputBufferHz)
 
 	if *wavOut == "" {
 		stream, err := portaudio.OpenDefaultStream(0, 2, float64(outputBufferHz), portaudio.FramesPerBufferUnspecified, player.audioCB)
@@ -319,7 +322,7 @@ func main() {
 		stream.Start()
 		defer stream.Stop()
 
-		_ = <-songEndCh // wait for song to end
+		<-player.endCh // wait for song to end
 	} else {
 		wavF, err := os.Create(*wavOut)
 		if err != nil {
@@ -449,6 +452,23 @@ func (p *Player) sequenceTick() {
 				// TODO handle looping
 				p.rowCounter = int((param>>4)*10 + param&0xF)
 				// TODO skipping first row of pattern?
+			case effectExtended:
+				switch param >> 4 {
+				case effectExtendedFineVolSlideUp:
+					vol := channel.volume
+					vol += int(param & 0x0F)
+					if vol > 64 {
+						vol = 64
+					}
+					channel.volume = vol
+				case effectExtendedFineVolSlideDown:
+					vol := channel.volume
+					vol -= int(param & 0xF)
+					if vol < 0 {
+						vol = 0
+					}
+					channel.volume = vol
+				}
 			}
 			rowDataIdx += 4
 		}
@@ -459,7 +479,8 @@ func (p *Player) sequenceTick() {
 			p.rowCounter = 0
 			p.ordIdx++
 			if p.ordIdx >= p.hdr.nOrders {
-				p.ordIdx = 0
+				p.endCh <- struct{}{}
+				// TODO: loop and reset instruments to default state
 			}
 		}
 	} else {

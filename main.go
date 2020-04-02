@@ -55,6 +55,38 @@ type channel struct {
 	param  byte
 }
 
+func (c *channel) portaToNote() {
+	period := c.period
+	if period < c.portaPeriod {
+		period += c.portaSpeed
+		if period > c.portaPeriod {
+			period = c.portaPeriod
+		}
+	} else if period > c.portaPeriod {
+		period -= c.portaSpeed
+		if period < c.portaPeriod {
+			period = c.portaPeriod
+		}
+	}
+	c.period = period
+}
+
+func (c *channel) volumeSlide() {
+	vol := c.volume
+	if (c.param >> 4) > 0 {
+		vol += int(c.param >> 4)
+		if vol > 64 {
+			vol = 64
+		}
+	} else if c.param != 0 {
+		vol -= int(c.param & 0xF)
+		if vol < 0 {
+			vol = 0
+		}
+	}
+	c.volume = vol
+}
+
 type Player struct {
 	hdr               ModHeader
 	samplingFrequency int
@@ -87,7 +119,7 @@ func NewPlayer(song ModHeader, samplingFrequency int) *Player {
 	for i := 0; i < song.nChannels; i++ {
 		channel := &player.channels[i]
 		channel.sampleIdx = -1
-		switch i {
+		switch i & 3 {
 		case 0, 3:
 			channel.pan = 0
 		case 1, 2:
@@ -107,13 +139,16 @@ const (
 	globalVolume        = 16        // Hack for now to boost volume
 
 	// MOD note effects
-	effectPortaToNote  = 0x3
-	effectSampleOffset = 0x9
-	effectVolumeSlide  = 0xA
-	effectSetVolume    = 0xC
-	effectPatternBrk   = 0xD
-	effectExtended     = 0xE
-	effectSetSpeed     = 0xF
+	effectPortamentoUp        = 0x1
+	effectPortamentoDown      = 0x2
+	effectPortaToNote         = 0x3
+	effectPortaToNoteVolSlide = 0x5
+	effectSampleOffset        = 0x9
+	effectVolumeSlide         = 0xA
+	effectSetVolume           = 0xC
+	effectPatternBrk          = 0xD
+	effectExtended            = 0xE
+	effectSetSpeed            = 0xF
 
 	effectExtendedFineVolSlideUp   = 0xA
 	effectExtendedFineVolSlideDown = 0xB
@@ -281,10 +316,11 @@ func main() {
 	// Detect number of channels
 	x := make([]byte, 4)
 	buf.Read(x)
-	switch string(x) {
-	case "M.K.":
+	switch string(x[2:]) {
+	case "K.": // M.K.
 		hdr.nChannels = 4
-		break
+	case "CH": // xxCH, xx = number of channels as two digit decimal
+		hdr.nChannels = (int(x[0])-48)*10 + (int(x[1] - 48))
 	}
 
 	// Read pattern data
@@ -355,34 +391,23 @@ func main() {
 
 func (p *Player) channelTick(c *channel, ci int) {
 	switch c.effect {
+	case effectPortamentoUp:
+		c.period -= int(c.param)
+		if c.period < 1 {
+			c.period = 1
+		}
+	case effectPortamentoDown:
+		c.period += int(c.param)
+		if c.period > 65535 {
+			c.period = 65535
+		}
 	case effectPortaToNote:
-		period := c.period
-		if period < c.portaPeriod {
-			period += c.portaSpeed
-			if period > c.portaPeriod {
-				period = c.portaPeriod
-			}
-		} else if period > c.portaPeriod {
-			period -= c.portaSpeed
-			if period < c.portaPeriod {
-				period = c.portaPeriod
-			}
-		}
-		c.period = period
+		c.portaToNote()
+	case effectPortaToNoteVolSlide:
+		c.portaToNote()
+		c.volumeSlide()
 	case effectVolumeSlide:
-		vol := c.volume
-		if (c.param >> 4) > 0 {
-			vol += int(c.param >> 4)
-			if vol > 64 {
-				vol = 64
-			}
-		} else if c.param != 0 {
-			vol -= int(c.param & 0xF)
-			if vol < 0 {
-				vol = 0
-			}
-		}
-		c.volume = vol
+		c.volumeSlide()
 	}
 }
 
@@ -417,7 +442,7 @@ func (p *Player) sequenceTick() {
 				// ... save it away as the porta to note destination
 				channel.portaPeriod = period
 				// ... restart the sample if effect isn't 3, 5 or 0xEDx
-				if effect != effectPortaToNote && effect != 5 && !(effect == 0xE && param>>4 == 0xD) {
+				if effect != effectPortaToNote && effect != effectPortaToNoteVolSlide && !(effect == 0xE && param>>4 == 0xD) {
 					channel.samplePosition = 0
 
 					// ... reset the period
@@ -432,17 +457,28 @@ func (p *Player) sequenceTick() {
 			channel.effect = effect
 			channel.param = param
 
-			fmt.Printf("%s %2X %X%02X", noteStr(periodToNote(period)), sampNum, effect, param)
-			if i < p.hdr.nChannels-1 {
-				fmt.Print("|")
+			if i < 4 {
+				fmt.Printf("%s %2X %X%02X", noteStr(periodToNote(period)), sampNum, effect, param)
+				if i < 3 {
+					fmt.Print("|")
+				}
+			} else {
+				if i == 4 {
+					fmt.Print(" ...")
+				}
 			}
+
 			switch effect {
 			case effectPortaToNote:
 				if param > 0 {
 					channel.portaSpeed = int(param)
 				}
 			case effectSetSpeed:
-				p.speed = int(param)
+				if param >= 0x20 {
+					p.setTempo(int(param))
+				} else {
+					p.speed = int(param)
+				}
 			case effectSampleOffset:
 				channel.samplePosition = uint(param) << 24
 			case effectSetVolume:
@@ -500,7 +536,7 @@ func (p *Player) generateAudio(out [][]int16, nSamples, offset int) {
 	for chanIdx := range p.channels {
 		channel := &p.channels[chanIdx]
 
-		if channel.sampleIdx == -1 {
+		if channel.sampleIdx == -1 || channel.volume == 0 {
 			continue
 		}
 
@@ -511,6 +547,8 @@ func (p *Player) generateAudio(out [][]int16, nSamples, offset int) {
 		lvol := ((127 - channel.pan) * channel.volume) >> 7
 		rvol := (channel.pan * channel.volume) >> 7
 
+		// TODO: Full pan left or right optimization in mixer
+		// TODO: Move sample loop check outside of mixer inner loop
 		for off := offset; off < offset+nSamples; off++ {
 			// WARNING: no clipping protection when mixing in the sample (hence the downshift)
 			samp := int(sample.data[pos>>16])

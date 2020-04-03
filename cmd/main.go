@@ -13,8 +13,8 @@ import (
 	"log"
 	"os"
 
+	"github.com/chriskillpack/mod_player/wav"
 	"github.com/gordonklaus/portaudio"
-	"github.com/youpy/go-wav"
 )
 
 // ModHeader TODO
@@ -127,7 +127,7 @@ func NewPlayer(song ModHeader, samplingFrequency int) *Player {
 		}
 	}
 
-	player.endCh = make(chan struct{})
+	player.endCh = make(chan struct{}, 1)
 
 	return player
 }
@@ -319,6 +319,8 @@ func main() {
 	switch string(x[2:]) {
 	case "K.": // M.K.
 		hdr.nChannels = 4
+	case "HN": // xCHN, x = number of channels
+		hdr.nChannels = (int(x[0]) - 48)
 	case "CH": // xxCH, xx = number of channels as two digit decimal
 		hdr.nChannels = (int(x[0])-48)*10 + (int(x[1] - 48))
 	}
@@ -366,26 +368,42 @@ func main() {
 		}
 		defer wavF.Close()
 
-		ww := wav.NewWriter(wavF, 1000*1024, 2, outputBufferHz, 16)
+		var wavW *wav.Writer
+		if wavW, err = wav.NewWriter(wavF, outputBufferHz); err != nil {
+			log.Fatal(err)
+		}
 
 		audioOut := make([][]int16, 2)
 		for i := 0; i < 2; i++ {
 			audioOut[i] = make([]int16, 1024)
 		}
 
-		// TODO: Get this working completely
-		for f := 0; f < 1000; f++ {
-			player.audioCB(audioOut)
-			magic := make([]wav.Sample, 1024)
-			for i := 0; i < 1024; i++ {
-				magic[i].Values[0] = int(audioOut[0][i])
-				magic[i].Values[1] = int(audioOut[1][i])
+		playing := true
+		go func() {
+			for playing {
+				pl := true
+
+				select {
+				case _ = <-player.endCh:
+					pl = false
+				default:
+				}
+
+				player.audioCB(audioOut)
+				if err = wavW.WriteFrame(audioOut); err != nil {
+					wavF.Close()
+					log.Fatal(err)
+				}
+				playing = pl
 			}
-			if err := ww.WriteSamples(magic); err != nil {
-				log.Fatal(err)
-			}
+		}()
+
+		// TODO: yuck! do something better
+		for playing {
 		}
 
+		wavW.Finish()
+		wavF.Close()
 	}
 }
 

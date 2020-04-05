@@ -559,6 +559,10 @@ func (p *Player) generateAudio(out [][]int16, nSamples, offset int) {
 		}
 
 		sample := &p.hdr.samples[channel.sampleIdx]
+		if sample.length == 0 {
+			continue
+		}
+
 		playbackHz := int(retraceNTSCHz / float32(channel.period*2))
 		dr := uint(playbackHz<<16) / outputBufferHz
 		pos := channel.samplePosition

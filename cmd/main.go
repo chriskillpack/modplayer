@@ -102,6 +102,8 @@ type Player struct {
 	rowCounter    int // which row in the order
 	ordIdx        int // current order of the song
 
+	mute uint // bitmask of muted channels, channel 1 in LSB
+
 	endCh chan struct{} // indicates end of song reached
 
 	channels []channel
@@ -558,6 +560,10 @@ func (p *Player) generateAudio(out [][]int16, nSamples, offset int) {
 			continue
 		}
 
+		if (p.mute & (1 << chanIdx)) != 0 {
+			continue
+		}
+
 		sample := &p.hdr.samples[channel.sampleIdx]
 		if sample.length == 0 {
 			continue
@@ -583,8 +589,8 @@ func (p *Player) generateAudio(out [][]int16, nSamples, offset int) {
 					pos = uint(sample.loopStart) << 16
 				} else {
 					channel.sampleIdx = -1 // turn off the channel
+					break
 				}
-				break
 			}
 		}
 		channel.samplePosition = pos

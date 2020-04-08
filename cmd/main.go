@@ -375,10 +375,7 @@ func main() {
 			log.Fatal(err)
 		}
 
-		audioOut := make([][]int16, 2)
-		for i := 0; i < 2; i++ {
-			audioOut[i] = make([]int16, 1024)
-		}
+		audioOut := make([]int16, 2048)
 
 		playing := true
 		go func() {
@@ -547,10 +544,10 @@ func (p *Player) sequenceTick() {
 	}
 }
 
-func (p *Player) generateAudio(out [][]int16, nSamples, offset int) {
-	for s := offset; s < offset+nSamples; s++ {
-		out[0][s] = 0
-		out[1][s] = 0
+func (p *Player) generateAudio(out []int16, nSamples, offset int) {
+	for s := offset * 2; s < (offset+nSamples)*2; s += 2 {
+		out[s+0] = 0
+		out[s+1] = 0
 	}
 
 	for chanIdx := range p.channels {
@@ -577,11 +574,11 @@ func (p *Player) generateAudio(out [][]int16, nSamples, offset int) {
 
 		// TODO: Full pan left or right optimization in mixer
 		// TODO: Move sample loop check outside of mixer inner loop
-		for off := offset; off < offset+nSamples; off++ {
+		for off := offset * 2; off < (offset+nSamples)*2; off += 2 {
 			// WARNING: no clipping protection when mixing in the sample (hence the downshift)
 			samp := int(sample.data[pos>>16])
-			out[0][off] += int16((samp * lvol) >> 2)
-			out[1][off] += int16((samp * rvol) >> 2)
+			out[off+0] += int16((samp * lvol) >> 2)
+			out[off+1] += int16((samp * rvol) >> 2)
 
 			pos += dr
 			if pos >= uint(sample.length<<16) {
@@ -597,8 +594,8 @@ func (p *Player) generateAudio(out [][]int16, nSamples, offset int) {
 	}
 }
 
-func (p *Player) audioCB(out [][]int16) {
-	count := len(out[0])
+func (p *Player) audioCB(out []int16) {
+	count := len(out) / 2 // portaudio counts L & R channels separately, length 2 means one stereo sample
 	offset := 0
 	for count > 0 {
 		remain := p.samplesPerTick - p.tickSamplePos

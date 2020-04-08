@@ -27,16 +27,8 @@ type Format struct {
 	BitsPerSample uint16
 }
 
-// samples is N samples organized by channel
-// [channel][sampleNum]samples
-func (w *Writer) WriteFrame(samples [][]int16) error {
-	for i := range samples[0] {
-		s := [2]int16{samples[0][i], samples[1][i]}
-		if err := binary.Write(w.WS, binary.LittleEndian, s); err != nil {
-			return err
-		}
-	}
-	return nil
+func (w *Writer) WriteFrame(samples []int16) error {
+	return binary.Write(w.WS, binary.LittleEndian, samples)
 }
 
 func (w *Writer) Finish() (int64, error) {

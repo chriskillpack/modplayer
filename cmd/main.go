@@ -51,8 +51,9 @@ type channel struct {
 	fineTune       int
 	samplePosition uint
 
-	effect byte
-	param  byte
+	effect        byte
+	param         byte
+	effectCounter int
 }
 
 func (c *channel) portaToNote() {
@@ -154,6 +155,7 @@ const (
 
 	effectExtendedFineVolSlideUp   = 0xA
 	effectExtendedFineVolSlideDown = 0xB
+	effectExtendedNoteCut          = 0xC
 )
 
 var (
@@ -407,6 +409,8 @@ func main() {
 }
 
 func (p *Player) channelTick(c *channel, ci int) {
+	c.effectCounter++
+
 	switch c.effect {
 	case effectPortamentoUp:
 		c.period -= int(c.param)
@@ -425,6 +429,14 @@ func (p *Player) channelTick(c *channel, ci int) {
 		c.volumeSlide()
 	case effectVolumeSlide:
 		c.volumeSlide()
+
+	case effectExtended:
+		switch c.param >> 4 {
+		case effectExtendedNoteCut:
+			if c.effectCounter == int(c.param&0xF) {
+				c.volume = 0
+			}
+		}
 	}
 }
 
@@ -441,6 +453,7 @@ func (p *Player) sequenceTick() {
 		for i := 0; i < p.hdr.nChannels; i++ {
 			channel := &p.channels[i]
 
+			channel.effectCounter = 0
 			sampNum, period, effect, param := decodeNote(p.hdr.patterns[rowDataIdx : rowDataIdx+4])
 
 			// Getting note triggering logic correct was a pain, H/T micromod
@@ -521,6 +534,10 @@ func (p *Player) sequenceTick() {
 						vol = 0
 					}
 					channel.volume = vol
+				case effectExtendedNoteCut:
+					if param&0xF == 0 {
+						channel.volume = 0
+					}
 				}
 			}
 			rowDataIdx += 4

@@ -347,19 +347,11 @@ func main() {
 	player := NewPlayer(hdr, outputBufferHz)
 
 	if *wavOut == "" {
-		stream, err := portaudio.OpenDefaultStream(0, 2, float64(outputBufferHz), portaudio.FramesPerBufferUnspecified, player.audioCB)
+		stream, err := portaudio.OpenDefaultStream(0, 2, float64(outputBufferHz), portaudio.FramesPerBufferUnspecified, player.GenerateAudio)
 		if err != nil {
 			log.Fatal(err)
 		}
 		defer stream.Close()
-
-		// fmt.Println("3")
-		// time.Sleep(1 * time.Second)
-		// fmt.Println("2")
-		// time.Sleep(1 * time.Second)
-		// fmt.Println("1")
-		// time.Sleep(1 * time.Second)
-		// fmt.Println("start")
 
 		stream.Start()
 		defer stream.Stop()
@@ -390,7 +382,7 @@ func main() {
 				default:
 				}
 
-				player.audioCB(audioOut)
+				player.GenerateAudio(audioOut)
 				if err = wavW.WriteFrame(audioOut); err != nil {
 					wavF.Close()
 					log.Fatal(err)
@@ -561,7 +553,7 @@ func (p *Player) sequenceTick() {
 	}
 }
 
-func (p *Player) generateAudio(out []int16, nSamples, offset int) {
+func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 	for s := offset * 2; s < (offset+nSamples)*2; s += 2 {
 		out[s+0] = 0
 		out[s+1] = 0
@@ -611,7 +603,7 @@ func (p *Player) generateAudio(out []int16, nSamples, offset int) {
 	}
 }
 
-func (p *Player) audioCB(out []int16) {
+func (p *Player) GenerateAudio(out []int16) {
 	count := len(out) / 2 // portaudio counts L & R channels separately, length 2 means one stereo sample
 	offset := 0
 	for count > 0 {
@@ -620,7 +612,7 @@ func (p *Player) audioCB(out []int16) {
 			remain = count
 		}
 
-		p.generateAudio(out, remain, offset)
+		p.mixChannels(out, remain, offset)
 		offset += remain
 
 		p.tickSamplePos += remain

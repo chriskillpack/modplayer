@@ -1,4 +1,6 @@
-package mod
+// Useful notes https://github.com/AntonioND/gbt-player/blob/master/mod2gbt/FMODDOC.TXT
+
+package modplayer
 
 import (
 	"bytes"
@@ -9,7 +11,6 @@ import (
 
 const (
 	retraceNTSCHz = 7159090.5 // Amiga NTSC vertical retrace timing
-	globalVolume  = 16        // Hack for now to boost volume
 
 	// MOD note effects
 	effectPortamentoUp        = 0x1
@@ -23,6 +24,7 @@ const (
 	effectExtended            = 0xE
 	effectSetSpeed            = 0xF
 
+	// Extended effects (Exy), x = effect, y effect param
 	effectExtendedFineVolSlideUp   = 0xA
 	effectExtendedFineVolSlideDown = 0xB
 	effectExtendedNoteCut          = 0xC
@@ -75,25 +77,26 @@ type Song struct {
 	Tempo     int // in beats per minute
 	Speed     int // number of tempo ticks before advancing to the next row
 
-	samples  [31]Sample
-	patterns []byte
+	Samples  [31]Sample
+	Patterns []byte
 }
 
 type Sample struct {
-	name      string
-	length    int
-	fineTune  int
-	volume    int
-	loopStart int
-	loopLen   int
-	data      []int8
+	Name      string
+	Length    int
+	FineTune  int
+	Volume    int
+	LoopStart int
+	LoopLen   int
+	Data      []int8
 }
 
 var (
 	ErrUnrecognizedMODFormat = errors.New("Unrecognized MOD format")
 
 	// Amiga period values. This table is used to map the note period
-	// in the MOD file to a note index
+	// in the MOD file to a note index for display. It is not used in
+	// the mixer.
 	periodTable = []int{
 		// C-1, C#1, D-1, ..., B-1
 		856, 808, 762, 720, 678, 640, 604, 570, 538, 508, 480, 453,
@@ -112,6 +115,7 @@ var (
 		4096, 4067, 4037, 4008, 3979, 3951, 3922, 3894,
 	}
 
+	// Literal notes
 	notes = []string{
 		"C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-",
 	}
@@ -220,17 +224,17 @@ func (p *Player) sequenceTick() {
 			channel := &p.channels[i]
 
 			channel.effectCounter = 0
-			sampNum, period, effect, param := decodeNote(p.Song.patterns[rowDataIdx : rowDataIdx+4])
+			sampNum, period, effect, param := decodeNote(p.Song.Patterns[rowDataIdx : rowDataIdx+4])
 
 			// Getting note triggering logic correct was a pain, H/T micromod
 
 			// If there is an instrument/sample number then reset the volume
 			// sample numbers are 1-based in MOD format
 			if sampNum > 0 && sampNum < 32 {
-				smp := &p.Song.samples[sampNum-1]
+				smp := &p.Song.Samples[sampNum-1]
 
-				channel.volume = smp.volume
-				channel.fineTune = smp.fineTune
+				channel.volume = smp.Volume
+				channel.fineTune = smp.FineTune
 			}
 
 			// If there is a period...
@@ -344,8 +348,8 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 			continue
 		}
 
-		sample := &p.Song.samples[channel.sampleIdx]
-		if sample.length == 0 {
+		sample := &p.Song.Samples[channel.sampleIdx]
+		if sample.Length == 0 {
 			continue
 		}
 
@@ -359,14 +363,14 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 		// TODO: Move sample loop check outside of mixer inner loop
 		for off := offset * 2; off < (offset+nSamples)*2; off += 2 {
 			// WARNING: no clipping protection when mixing in the sample (hence the downshift)
-			samp := int(sample.data[pos>>16])
+			samp := int(sample.Data[pos>>16])
 			out[off+0] += int16((samp * lvol) >> 2)
 			out[off+1] += int16((samp * rvol) >> 2)
 
 			pos += dr
-			if pos >= uint(sample.length<<16) {
-				if sample.loopLen > 0 {
-					pos = uint(sample.loopStart) << 16
+			if pos >= uint(sample.Length<<16) {
+				if sample.LoopLen > 0 {
+					pos = uint(sample.LoopStart) << 16
 				} else {
 					channel.sampleIdx = -1 // turn off the channel
 					break
@@ -435,49 +439,49 @@ func readSampleInfo(r *bytes.Reader) (*Sample, error) {
 	if _, err = r.Read(tmp); err != nil {
 		return nil, err
 	}
-	smp.name = string(tmp)
+	smp.Name = string(tmp)
 
 	if _, err = r.Read(tmp[:2]); err != nil {
 		return nil, err
 	}
-	smp.length = int(binary.BigEndian.Uint16(tmp)) * 2
+	smp.Length = int(binary.BigEndian.Uint16(tmp)) * 2
 
 	var b byte
 	if b, err = r.ReadByte(); err != nil {
 		return nil, err
 	}
-	smp.fineTune = int(b&7) - int(b&8) + 8
+	smp.FineTune = int(b&7) - int(b&8) + 8
 
 	if b, err = r.ReadByte(); err != nil {
 		return nil, err
 	}
-	smp.volume = int(b)
+	smp.Volume = int(b)
 
 	if _, err = r.Read(tmp[:2]); err != nil {
 		return nil, err
 	}
-	smp.loopStart = int(binary.BigEndian.Uint16(tmp)) * 2
+	smp.LoopStart = int(binary.BigEndian.Uint16(tmp)) * 2
 
 	if _, err = r.Read(tmp[:2]); err != nil {
 		return nil, err
 	}
-	smp.loopLen = int(binary.BigEndian.Uint16(tmp)) * 2
+	smp.LoopLen = int(binary.BigEndian.Uint16(tmp)) * 2
 
 	// Sanitize sample loop info (H/T micromod)
-	if smp.loopLen < 4 {
-		smp.loopLen = 0
+	if smp.LoopLen < 4 {
+		smp.LoopLen = 0
 	}
 
 	return &smp, nil
 }
 
 func NewSongFromBytes(songBytes []byte) (*Song, error) {
-	hdr := &Song{Speed: 6, Tempo: 125}
+	song := &Song{Speed: 6, Tempo: 125}
 
 	buf := bytes.NewReader(songBytes)
 	y := make([]byte, 20)
 	buf.Read(y)
-	hdr.Title = string(y)
+	song.Title = string(y)
 
 	// Read sample information (sample data is read later)
 	for i := 0; i < 31; i++ {
@@ -485,7 +489,7 @@ func NewSongFromBytes(songBytes []byte) (*Song, error) {
 		if err != nil {
 			return nil, err
 		}
-		hdr.samples[i] = *s
+		song.Samples[i] = *s
 	}
 
 	// Read orders
@@ -494,49 +498,50 @@ func NewSongFromBytes(songBytes []byte) (*Song, error) {
 		return nil, err
 	}
 
-	hdr.nOrders = int(no)
+	song.nOrders = int(no)
 	buf.ReadByte() // Discard
-	if n, err := buf.Read(hdr.orders[:]); n != len(hdr.orders) || err != nil {
+	if n, err := buf.Read(song.orders[:]); n != len(song.orders) || err != nil {
 		return nil, err
 	}
 
-	hdr.nPatterns = int(hdr.orders[0])
+	song.nPatterns = int(song.orders[0])
 	for i := 1; i < 128; i++ {
-		if int(hdr.orders[i]) > hdr.nPatterns {
-			hdr.nPatterns = int(hdr.orders[i])
+		if int(song.orders[i]) > song.nPatterns {
+			song.nPatterns = int(song.orders[i])
 		}
 	}
 
-	// Detect number of channels
+	// Detect number of channels from MOD signature
+	// Errors if signature not recognized
 	x := make([]byte, 4)
 	if n, err := buf.Read(x); n != 4 || err != nil {
 		return nil, err
 	}
 	switch string(x[2:]) {
 	case "K.": // M.K.
-		hdr.nChannels = 4
+		song.nChannels = 4
 	case "HN": // xCHN, x = number of channels
-		hdr.nChannels = (int(x[0]) - 48)
+		song.nChannels = (int(x[0]) - 48)
 	case "CH": // xxCH, xx = number of channels as two digit decimal
-		hdr.nChannels = (int(x[0])-48)*10 + (int(x[1] - 48))
+		song.nChannels = (int(x[0])-48)*10 + (int(x[1] - 48))
 	default:
 		return nil, ErrUnrecognizedMODFormat
 	}
 
 	// Read pattern data
-	hdr.patterns = make([]byte, hdr.nChannels*(hdr.nPatterns+1)*64*4)
-	buf.Read(hdr.patterns)
+	song.Patterns = make([]byte, song.nChannels*(song.nPatterns+1)*64*4)
+	buf.Read(song.Patterns)
 
 	// Read sample data
 	for i := 0; i < 31; i++ {
-		tmp := make([]byte, hdr.samples[i].length)
+		tmp := make([]byte, song.Samples[i].Length)
 		buf.Read(tmp)
 
-		hdr.samples[i].data = make([]int8, hdr.samples[i].length)
+		song.Samples[i].Data = make([]int8, song.Samples[i].Length)
 		for j, sd := range tmp {
-			hdr.samples[i].data[j] = int8(sd)
+			song.Samples[i].Data[j] = int8(sd)
 		}
 	}
 
-	return hdr, nil
+	return song, nil
 }

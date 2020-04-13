@@ -1,6 +1,5 @@
 // MOD player in Go
-// Useful notes https://github.com/AntonioND/gbt-player/blob/master/mod2gbt/FMODDOC.TXT
-// Uses portaudio for audio output
+// Uses portaudio for audio output or can write to WAV file (16-bit, stereo)
 
 package main
 
@@ -10,8 +9,8 @@ import (
 	"log"
 	"os"
 
-	mod "github.com/chriskillpack/mod_player"
-	"github.com/chriskillpack/mod_player/wav"
+	"github.com/chriskillpack/modplayer"
+	"github.com/chriskillpack/modplayer/wav"
 	"github.com/gordonklaus/portaudio"
 )
 
@@ -35,12 +34,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	hdr, err := mod.NewSongFromBytes(modF)
+	hdr, err := modplayer.NewSongFromBytes(modF)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	player := mod.NewPlayer(hdr, outputBufferHz)
+	player := modplayer.NewPlayer(hdr, outputBufferHz)
 
 	if *wavOut == "" {
 		initErr := portaudio.Initialize()

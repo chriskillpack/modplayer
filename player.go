@@ -12,6 +12,9 @@ import (
 const (
 	retraceNTSCHz = 7159090.5 // Amiga NTSC vertical retrace timing
 
+	rowsPerPattern  = 64
+	bytesPerChannel = 4
+
 	// MOD note effects
 	effectPortamentoUp        = 0x1
 	effectPortamentoDown      = 0x2
@@ -70,9 +73,8 @@ type channel struct {
 // A song currently represents a MOD file, will need revising if S3M support is added
 type Song struct {
 	Title     string
-	nChannels int
-	nOrders   int
-	orders    [128]byte
+	Channels  int
+	Orders    []byte
 	nPatterns int
 	Tempo     int // in beats per minute
 	Speed     int // number of tempo ticks before advancing to the next row
@@ -156,8 +158,8 @@ func (c *channel) volumeSlide() {
 func NewPlayer(song *Song, samplingFrequency uint) *Player {
 	player := &Player{samplingFrequency: samplingFrequency, Song: song, Speed: 6}
 	player.setTempo(125)
-	player.channels = make([]channel, song.nChannels)
-	for i := 0; i < song.nChannels; i++ {
+	player.channels = make([]channel, song.Channels)
+	for i := 0; i < song.Channels; i++ {
 		channel := &player.channels[i]
 		channel.sampleIdx = -1
 		switch i & 3 {
@@ -215,12 +217,12 @@ func (p *Player) sequenceTick() {
 	if p.tick <= 0 {
 		p.tick = p.Speed
 
-		pattern := int(p.Song.orders[p.ordIdx])
-		rowDataIdx := (pattern*64 + p.rowCounter) * 4 * p.Song.nChannels
-
 		fmt.Printf("%02X %02X|", p.ordIdx, p.rowCounter)
 
-		for i := 0; i < p.Song.nChannels; i++ {
+		pattern := int(p.Song.Orders[p.ordIdx])
+		rowDataIdx := (pattern*rowsPerPattern + p.rowCounter) * bytesPerChannel * p.Song.Channels
+
+		for i := 0; i < p.Song.Channels; i++ {
 			channel := &p.channels[i]
 
 			channel.effectCounter = 0
@@ -318,14 +320,14 @@ func (p *Player) sequenceTick() {
 		if p.rowCounter >= 64 {
 			p.rowCounter = 0
 			p.ordIdx++
-			if p.ordIdx >= p.Song.nOrders {
+			if p.ordIdx >= len(p.Song.Orders) {
 				p.EndCh <- struct{}{}
 				// TODO: loop and reset instruments to default state
 			}
 		}
 	} else {
 		// channel tick
-		for i := 0; i < p.Song.nChannels; i++ {
+		for i := 0; i < p.Song.Channels; i++ {
 			p.channelTick(&p.channels[i], i)
 		}
 	}
@@ -433,46 +435,32 @@ func periodToNote(period int) int {
 }
 
 func readSampleInfo(r *bytes.Reader) (*Sample, error) {
-	var smp Sample
-	tmp := make([]byte, 22)
-	var err error
-	if _, err = r.Read(tmp); err != nil {
+	data := struct {
+		Name      [22]byte
+		Length    uint16
+		FineTune  uint8
+		Volume    uint8
+		LoopStart uint16
+		LoopLen   uint16
+	}{}
+
+	if err := binary.Read(r, binary.BigEndian, &data); err != nil {
 		return nil, err
 	}
-	smp.Name = string(tmp)
 
-	if _, err = r.Read(tmp[:2]); err != nil {
-		return nil, err
+	smp := &Sample{
+		Name:      string(data.Name[:]),
+		Length:    int(data.Length) * 2,
+		FineTune:  int(data.FineTune&7) - int(data.FineTune&8) + 8,
+		Volume:    int(data.Volume),
+		LoopStart: int(data.LoopStart) * 2,
+		LoopLen:   int(data.LoopLen) * 2,
 	}
-	smp.Length = int(binary.BigEndian.Uint16(tmp)) * 2
-
-	var b byte
-	if b, err = r.ReadByte(); err != nil {
-		return nil, err
-	}
-	smp.FineTune = int(b&7) - int(b&8) + 8
-
-	if b, err = r.ReadByte(); err != nil {
-		return nil, err
-	}
-	smp.Volume = int(b)
-
-	if _, err = r.Read(tmp[:2]); err != nil {
-		return nil, err
-	}
-	smp.LoopStart = int(binary.BigEndian.Uint16(tmp)) * 2
-
-	if _, err = r.Read(tmp[:2]); err != nil {
-		return nil, err
-	}
-	smp.LoopLen = int(binary.BigEndian.Uint16(tmp)) * 2
-
-	// Sanitize sample loop info (H/T micromod)
 	if smp.LoopLen < 4 {
 		smp.LoopLen = 0
 	}
 
-	return &smp, nil
+	return smp, nil
 }
 
 func NewSongFromBytes(songBytes []byte) (*Song, error) {
@@ -493,21 +481,23 @@ func NewSongFromBytes(songBytes []byte) (*Song, error) {
 	}
 
 	// Read orders
-	no, err := buf.ReadByte()
-	if err != nil {
+	orders := struct {
+		Orders    uint8
+		_         uint8
+		OrderData [128]byte
+	}{}
+
+	if err := binary.Read(buf, binary.BigEndian, &orders); err != nil {
 		return nil, err
 	}
+	song.Orders = make([]byte, orders.Orders)
+	copy(song.Orders, orders.OrderData[:orders.Orders])
 
-	song.nOrders = int(no)
-	buf.ReadByte() // Discard
-	if n, err := buf.Read(song.orders[:]); n != len(song.orders) || err != nil {
-		return nil, err
-	}
-
-	song.nPatterns = int(song.orders[0])
+	// Detect the number of patterns by looking at the orders
+	song.nPatterns = int(song.Orders[0])
 	for i := 1; i < 128; i++ {
-		if int(song.orders[i]) > song.nPatterns {
-			song.nPatterns = int(song.orders[i])
+		if int(orders.OrderData[i]) > song.nPatterns {
+			song.nPatterns = int(orders.OrderData[i])
 		}
 	}
 
@@ -519,17 +509,17 @@ func NewSongFromBytes(songBytes []byte) (*Song, error) {
 	}
 	switch string(x[2:]) {
 	case "K.": // M.K.
-		song.nChannels = 4
+		song.Channels = 4
 	case "HN": // xCHN, x = number of channels
-		song.nChannels = (int(x[0]) - 48)
+		song.Channels = (int(x[0]) - 48)
 	case "CH": // xxCH, xx = number of channels as two digit decimal
-		song.nChannels = (int(x[0])-48)*10 + (int(x[1] - 48))
+		song.Channels = (int(x[0])-48)*10 + (int(x[1] - 48))
 	default:
 		return nil, ErrUnrecognizedMODFormat
 	}
 
 	// Read pattern data
-	song.Patterns = make([]byte, song.nChannels*(song.nPatterns+1)*64*4)
+	song.Patterns = make([]byte, song.Channels*bytesPerChannel*(song.nPatterns+1)*rowsPerPattern)
 	buf.Read(song.Patterns)
 
 	// Read sample data

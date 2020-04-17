@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	retraceNTSCHz = 7159090.5 // Amiga NTSC vertical retrace timing
+	retracePALHz = 7093789.2 // Amiga PAL vertical retrace timing
 
 	rowsPerPattern  = 64
 	bytesPerChannel = 4
@@ -355,7 +355,7 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 			continue
 		}
 
-		playbackHz := int(retraceNTSCHz / float32(channel.period*2))
+		playbackHz := int(retracePALHz / float32(channel.period*2))
 		dr := uint(playbackHz<<16) / p.samplingFrequency
 		pos := channel.samplePosition
 		lvol := ((127 - channel.pan) * channel.volume) >> 7
@@ -364,10 +364,11 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 		// TODO: Full pan left or right optimization in mixer
 		// TODO: Move sample loop check outside of mixer inner loop
 		for off := offset * 2; off < (offset+nSamples)*2; off += 2 {
-			// WARNING: no clipping protection when mixing in the sample (hence the downshift)
+			// WARNING: no clipping when mixing, this seems to be the case in other players I looked at.
+			// I think the expectation is that the musician not play samples too loudly.
 			samp := int(sample.Data[pos>>16])
-			out[off+0] += int16((samp * lvol) >> 2)
-			out[off+1] += int16((samp * rvol) >> 2)
+			out[off+0] += int16(samp * lvol)
+			out[off+1] += int16(samp * rvol)
 
 			pos += dr
 			if pos >= uint(sample.Length<<16) {

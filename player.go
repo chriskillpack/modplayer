@@ -72,15 +72,14 @@ type channel struct {
 
 // A song currently represents a MOD file, will need revising if S3M support is added
 type Song struct {
-	Title     string
-	Channels  int
-	Orders    []byte
-	nPatterns int
-	Tempo     int // in beats per minute
-	Speed     int // number of tempo ticks before advancing to the next row
+	Title    string
+	Channels int
+	Orders   []byte
+	Tempo    int // in beats per minute
+	Speed    int // number of tempo ticks before advancing to the next row
 
 	Samples  [31]Sample
-	Patterns []byte
+	Patterns [][]byte
 }
 
 type Sample struct {
@@ -220,13 +219,14 @@ func (p *Player) sequenceTick() {
 		fmt.Printf("%02X %02X|", p.ordIdx, p.rowCounter)
 
 		pattern := int(p.Song.Orders[p.ordIdx])
-		rowDataIdx := (pattern*rowsPerPattern + p.rowCounter) * bytesPerChannel * p.Song.Channels
+		rowDataIdx := p.rowCounter * p.Song.Channels * bytesPerChannel
 
 		for i := 0; i < p.Song.Channels; i++ {
 			channel := &p.channels[i]
 
 			channel.effectCounter = 0
-			sampNum, period, effect, param := decodeNote(p.Song.Patterns[rowDataIdx : rowDataIdx+4])
+			sampNum, period, effect, param := decodeNote(
+				p.Song.Patterns[pattern][rowDataIdx : rowDataIdx+bytesPerChannel])
 
 			// Getting note triggering logic correct was a pain, H/T micromod
 
@@ -260,7 +260,7 @@ func (p *Player) sequenceTick() {
 			channel.param = param
 
 			if i < 4 {
-				fmt.Printf("%s %2X %X%02X", noteStr(periodToNote(period)), sampNum, effect, param)
+				fmt.Printf("%s %2X %X%02X", noteStrFromPeriod(period), sampNum, effect, param)
 				if i < 3 {
 					fmt.Print("|")
 				}
@@ -413,25 +413,17 @@ func decodeNote(note []byte) (int, int, byte, byte) {
 	return int(sampNum), period, effNum, effParm
 }
 
-// Turn a note index into a string representation, e.g. 'C-4' or 'F#3'
-// Returns a blank string of three spaces if the note index is -1
-func noteStr(note int) string {
-	if note == -1 {
-		return "   "
-	}
-
-	return fmt.Sprintf("%s%d", notes[note%12], note/12+3)
-}
-
-// Convert amiga period to note index
-func periodToNote(period int) int {
+// Compute the string representation of a note ('C-4', 'F#3', etc)
+// from it's period value. Returns a string of three spaces if the
+// note is unrecognized.
+func noteStrFromPeriod(period int) string {
 	for i, prd := range periodTable {
 		if prd == period {
-			return i
+			return fmt.Sprintf("%s%d", notes[i%12], i/12+3)
 		}
 	}
 
-	return -1
+	return "   "
 }
 
 func readSampleInfo(r *bytes.Reader) (*Sample, error) {
@@ -493,13 +485,15 @@ func NewSongFromBytes(songBytes []byte) (*Song, error) {
 	song.Orders = make([]byte, orders.Orders)
 	copy(song.Orders, orders.OrderData[:orders.Orders])
 
-	// Detect the number of patterns by looking at the orders
-	song.nPatterns = int(song.Orders[0])
+	// Detect number of patterns by finding maximum pattern id in song
+	// orders table.
+	patterns := int(song.Orders[0])
 	for i := 1; i < 128; i++ {
-		if int(orders.OrderData[i]) > song.nPatterns {
-			song.nPatterns = int(orders.OrderData[i])
+		if int(orders.OrderData[i]) > patterns {
+			patterns = int(orders.OrderData[i])
 		}
 	}
+	patterns++ // num patterns = max_pattern_idx + 1
 
 	// Detect number of channels from MOD signature
 	// Errors if signature not recognized
@@ -519,8 +513,11 @@ func NewSongFromBytes(songBytes []byte) (*Song, error) {
 	}
 
 	// Read pattern data
-	song.Patterns = make([]byte, song.Channels*bytesPerChannel*(song.nPatterns+1)*rowsPerPattern)
-	buf.Read(song.Patterns)
+	song.Patterns = make([][]byte, patterns)
+	for i := 0; i < patterns; i++ {
+		song.Patterns[i] = make([]byte, rowsPerPattern*song.Channels*bytesPerChannel)
+		buf.Read(song.Patterns[i])
+	}
 
 	// Read sample data
 	for i := 0; i < 31; i++ {

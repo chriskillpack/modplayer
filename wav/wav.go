@@ -1,4 +1,4 @@
-// A very simple WAVE file writer
+// A _very_ simple WAVE file writer
 // Wrote my own after trying out a couple of others I found but
 // both required me to know the quantity of audio data before I
 // write it.
@@ -9,16 +9,22 @@ package wav
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 )
 
-const PCM = 1
+const wavTypePCM = 1
 
+// ErrInvalidChunkHeaderLength means that the provided letter chunk
+// name was not 4 characters.
+var ErrInvalidChunkHeaderLength = errors.New("Chunk header name is not 4 characters")
+
+// A Writer writes a WAV file into WS
 type Writer struct {
 	WS io.WriteSeeker
 }
 
-type Format struct {
+type format struct {
 	AudioFormat   uint16
 	Channels      uint16
 	SampleRate    uint32
@@ -27,10 +33,48 @@ type Format struct {
 	BitsPerSample uint16
 }
 
+// NewWriter returns a Writer that writes a WAV file and
+// sample data to ws
+func NewWriter(ws io.WriteSeeker, sampleRate int) (*Writer, error) {
+	writer := &Writer{WS: ws}
+
+	// Zero length for now, come back and fill this later
+	if err := writer.writeChunkHeader("RIFF", 0); err != nil {
+		return nil, err
+	}
+
+	if _, err := ws.Write([]byte("WAVE")); err != nil {
+		return nil, err
+	}
+
+	// Write format chunk
+	if err := writer.writeChunkHeader("fmt ", 16); err != nil {
+		return nil, err
+	}
+	format := format{AudioFormat: wavTypePCM, Channels: 2, SampleRate: uint32(sampleRate), BitsPerSample: 16}
+	format.ByteRate = uint32(sampleRate) * 2 * (16 / 8)
+	format.BlockAlign = 2 * (16 / 8)
+	if err := binary.Write(ws, binary.LittleEndian, format); err != nil {
+		return nil, err
+	}
+
+	// Start audio data chunk
+	if err := writer.writeChunkHeader("data", 0); err != nil {
+		return nil, err
+	}
+
+	return writer, nil
+}
+
+// WriteFrame writes the provided interleaved stereo samples to
+// w.
 func (w *Writer) WriteFrame(samples []int16) error {
 	return binary.Write(w.WS, binary.LittleEndian, samples)
 }
 
+// Finish must be called when all data has been written to the writer
+// This allows the writer to update placeholders values with the correct
+// values.
 func (w *Writer) Finish() (int64, error) {
 	wlen, err := w.WS.Seek(0, io.SeekCurrent)
 
@@ -52,44 +96,14 @@ func (w *Writer) Finish() (int64, error) {
 	return wlen, nil
 }
 
-func NewWriter(ws io.WriteSeeker, sampleRate int) (*Writer, error) {
-	writer := &Writer{WS: ws}
-
-	if _, err := ws.Write([]byte("RIFF")); err != nil {
-		return nil, err
+func (w *Writer) writeChunkHeader(chunk string, initialSize int) error {
+	if len(chunk) != 4 {
+		return ErrInvalidChunkHeaderLength
 	}
 
-	// Write out zero for now, come back and fill this later
-	if err := binary.Write(ws, binary.LittleEndian, int32(0)); err != nil {
-		return nil, err
+	if n, err := w.WS.Write([]byte(chunk)); n != 4 || err != nil {
+		return err
 	}
 
-	if _, err := ws.Write([]byte("WAVE")); err != nil {
-		return nil, err
-	}
-
-	// Write format chunk
-	if _, err := ws.Write([]byte("fmt ")); err != nil {
-		return nil, err
-	}
-	if err := binary.Write(ws, binary.LittleEndian, int32(16)); err != nil {
-		return nil, err
-	}
-	format := Format{AudioFormat: PCM, Channels: 2, SampleRate: uint32(sampleRate), BitsPerSample: 16}
-	format.ByteRate = uint32(sampleRate) * 2 * (16 / 8)
-	format.BlockAlign = 2 * (16 / 8)
-	if err := binary.Write(ws, binary.LittleEndian, format); err != nil {
-		return nil, err
-	}
-
-	// Write data chunk header
-	if _, err := ws.Write([]byte("data")); err != nil {
-		return nil, err
-	}
-	// Write out zero for the data size for now, come back and fill this later
-	if err := binary.Write(ws, binary.LittleEndian, int32(0)); err != nil {
-		return nil, err
-	}
-
-	return writer, nil
+	return binary.Write(w.WS, binary.LittleEndian, int32(initialSize))
 }

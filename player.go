@@ -5,7 +5,6 @@ package modplayer
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 )
 
@@ -70,7 +69,8 @@ type channel struct {
 	effectCounter int
 }
 
-// A song currently represents a MOD file, will need revising if S3M support is added
+// Song represents a MOD file
+// Will need revising if S3M support is added
 type Song struct {
 	Title    string
 	Channels int
@@ -82,6 +82,7 @@ type Song struct {
 	Patterns [][]byte
 }
 
+// Sample holds information about an instrument sample including sample data
 type Sample struct {
 	Name      string
 	Length    int
@@ -93,8 +94,6 @@ type Sample struct {
 }
 
 var (
-	ErrUnrecognizedMODFormat = errors.New("Unrecognized MOD format")
-
 	// Amiga period values. This table is used to map the note period
 	// in the MOD file to a note index for display. It is not used in
 	// the mixer.
@@ -510,7 +509,7 @@ func NewSongFromBytes(songBytes []byte) (*Song, error) {
 	case "CH": // xxCH, xx = number of channels as two digit decimal
 		song.Channels = (int(x[0])-48)*10 + (int(x[1] - 48))
 	default:
-		return nil, ErrUnrecognizedMODFormat
+		return nil, fmt.Errorf("Unrecognized MOD format %s", string(x))
 	}
 
 	// Read pattern data

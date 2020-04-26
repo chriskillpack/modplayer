@@ -15,11 +15,12 @@ import (
 	"github.com/chriskillpack/modplayer/wav"
 )
 
-const (
-	outputHz = 44100
-)
+const outputHz = 44100
 
 func main() {
+	log.SetFlags(0)
+	log.SetPrefix("modwav: ")
+
 	if len(os.Args) < 2 {
 		log.Fatal("Missing MOD filename")
 	}

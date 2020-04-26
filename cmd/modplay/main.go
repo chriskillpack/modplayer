@@ -9,14 +9,15 @@ import (
 	"github.com/gordonklaus/portaudio"
 )
 
-const (
-	outputBufferHz = 44100
-)
+const outputBufferHz = 44100
 
 // TODO
 // 1) Figure out how to disable portaudio debug text
 
 func main() {
+	log.SetFlags(0)
+	log.SetPrefix("modplay: ")
+
 	if len(os.Args) < 2 {
 		log.Fatal("Missing MOD filename")
 	}
@@ -32,7 +33,6 @@ func main() {
 	}
 
 	player := modplayer.NewPlayer(song, outputBufferHz)
-	player.Mute = 0b0111
 
 	initErr := portaudio.Initialize()
 	defer func() {

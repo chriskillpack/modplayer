@@ -12,7 +12,7 @@ import (
 	"syscall"
 
 	"github.com/chriskillpack/modplayer"
-	"github.com/chriskillpack/modplayer/wav"
+	"github.com/chriskillpack/modplayer/cmd/modwav/wav"
 )
 
 const outputHz = 44100

@@ -5,6 +5,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -62,28 +63,30 @@ func main() {
 	audioOut := make([]int16, 2048)
 
 	playing := true
-	go func() {
-		for playing {
-			pl := true
 
+	var lastPos modplayer.PlayerPosition
+
+	go func() {
+		for {
 			select {
 			case <-player.EndCh:
-				pl = false
+				playing = false
 			case <-c:
-				pl = false
-			default:
+				playing = false
+			case pos := <-player.PositionCh:
+				if lastPos.Order != pos.Order {
+					fmt.Println(pos.Order)
+				}
+				lastPos = pos
 			}
-
-			player.GenerateAudio(audioOut)
-			if err = wavW.WriteFrame(audioOut); err != nil {
-				wavF.Close()
-				log.Fatal(err)
-			}
-			playing = pl
 		}
 	}()
 
-	// TODO: yuck! do something better
 	for playing {
+		player.GenerateAudio(audioOut)
+		if err = wavW.WriteFrame(audioOut); err != nil {
+			wavF.Close()
+			log.Fatal(err)
+		}
 	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -50,5 +51,24 @@ func main() {
 	stream.Start()
 	defer stream.Stop()
 
-	<-player.EndCh // wait for song to end}
+	go func() {
+		for {
+			pos := <-player.PositionCh
+
+			fmt.Printf("%02X %02X|", pos.Order, pos.Row)
+			for i := 0; i < song.Channels; i++ {
+				if i < 4 {
+					fmt.Print(pos.Notes[i].String())
+					if i < 3 {
+						fmt.Print("|")
+					}
+				} else if i == 4 {
+					fmt.Print(" ...")
+				}
+			}
+			fmt.Println()
+		}
+	}()
+
+	<-player.EndCh // wait for song to end
 }

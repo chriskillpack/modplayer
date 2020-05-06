@@ -49,9 +49,30 @@ type Player struct {
 
 	Mute uint // bitmask of muted channels, channel 1 in LSB
 
-	EndCh chan struct{} // indicates end of song reached
+	PositionCh chan PlayerPosition
+	EndCh      chan struct{} // indicates end of song reached
 
 	channels []channel
+}
+
+type ChannelNoteData struct {
+	Note       string
+	Instrument int // -1 if no instrument
+	Effect     int
+	Param      int
+}
+
+func (c *ChannelNoteData) String() string {
+	return fmt.Sprintf("%s %2X %X%02X", c.Note, c.Instrument, c.Effect, c.Param)
+}
+
+// PlayerPosition holds the current position in the song
+type PlayerPosition struct {
+	Order   int
+	Pattern int
+	Row     int
+
+	Notes []ChannelNoteData
 }
 
 type channel struct {
@@ -155,10 +176,23 @@ func (c *channel) volumeSlide() {
 
 func NewPlayer(song *Song, samplingFrequency uint) *Player {
 	player := &Player{samplingFrequency: samplingFrequency, Song: song, Speed: 6}
-	player.setTempo(125)
 	player.channels = make([]channel, song.Channels)
-	for i := 0; i < song.Channels; i++ {
-		channel := &player.channels[i]
+	player.EndCh = make(chan struct{})
+	player.PositionCh = make(chan PlayerPosition)
+
+	player.reset()
+	player.broadcastPosition()
+
+	return player
+}
+
+func (p *Player) reset() {
+	p.setTempo(125)
+	p.Speed = 6
+	p.ordIdx = 0
+
+	for i := 0; i < p.Song.Channels; i++ {
+		channel := &p.channels[i]
 		channel.sampleIdx = -1
 		switch i & 3 {
 		case 0, 3:
@@ -167,15 +201,35 @@ func NewPlayer(song *Song, samplingFrequency uint) *Player {
 			channel.pan = 127
 		}
 	}
-
-	player.EndCh = make(chan struct{}, 1)
-
-	return player
 }
 
 func (p *Player) setTempo(tempo int) {
 	p.samplesPerTick = int((p.samplingFrequency<<1)+(p.samplingFrequency>>1)) / tempo
 	p.Tempo = tempo
+}
+
+func (p *Player) broadcastPosition() {
+	pos := PlayerPosition{Order: p.ordIdx, Pattern: int(p.Song.Orders[p.ordIdx]), Row: p.rowCounter}
+	pos.Notes = make([]ChannelNoteData, p.Channels)
+
+	pattern := int(p.Song.Orders[p.ordIdx])
+	rowDataIdx := p.rowCounter * p.Song.Channels * bytesPerChannel
+
+	for i := 0; i < p.Channels; i++ {
+		sampNum, period, effect, param := decodeNote(
+			p.Song.Patterns[pattern][rowDataIdx : rowDataIdx+bytesPerChannel])
+
+		note := &pos.Notes[i]
+		note.Note = noteStrFromPeriod(period)
+		note.Instrument = sampNum
+		note.Effect = int(effect)
+		note.Param = int(param)
+	}
+
+	select {
+	case p.PositionCh <- pos:
+	default:
+	}
 }
 
 func (p *Player) channelTick(c *channel, ci int) {
@@ -214,8 +268,6 @@ func (p *Player) sequenceTick() {
 	p.tick--
 	if p.tick <= 0 {
 		p.tick = p.Speed
-
-		fmt.Printf("%02X %02X|", p.ordIdx, p.rowCounter)
 
 		pattern := int(p.Song.Orders[p.ordIdx])
 		rowDataIdx := p.rowCounter * p.Song.Channels * bytesPerChannel
@@ -258,17 +310,6 @@ func (p *Player) sequenceTick() {
 			channel.effect = effect
 			channel.param = param
 
-			if i < 4 {
-				fmt.Printf("%s %2X %X%02X", noteStrFromPeriod(period), sampNum, effect, param)
-				if i < 3 {
-					fmt.Print("|")
-				}
-			} else {
-				if i == 4 {
-					fmt.Print(" ...")
-				}
-			}
-
 			switch effect {
 			case effectPortaToNote:
 				if param > 0 {
@@ -288,6 +329,7 @@ func (p *Player) sequenceTick() {
 				p.ordIdx++
 				// TODO handle looping
 				p.rowCounter = int((param>>4)*10 + param&0xF)
+				p.broadcastPosition()
 				// TODO skipping first row of pattern?
 			case effectExtended:
 				switch param >> 4 {
@@ -313,17 +355,23 @@ func (p *Player) sequenceTick() {
 			}
 			rowDataIdx += 4
 		}
-		fmt.Println()
 
 		p.rowCounter++
 		if p.rowCounter >= 64 {
 			p.rowCounter = 0
 			p.ordIdx++
+
 			if p.ordIdx >= len(p.Song.Orders) {
-				p.EndCh <- struct{}{}
-				// TODO: loop and reset instruments to default state
+				// End of the song reached, reset player state and broadcast message
+				p.reset()
+
+				select {
+				case p.EndCh <- struct{}{}:
+				default:
+				}
 			}
 		}
+		p.broadcastPosition()
 	} else {
 		// channel tick
 		for i := 0; i < p.Song.Channels; i++ {

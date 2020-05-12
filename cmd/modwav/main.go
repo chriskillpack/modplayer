@@ -69,24 +69,23 @@ func main() {
 	go func() {
 		for {
 			select {
-			case <-player.EndCh:
-				playing = false
 			case <-c:
 				playing = false
 			case pos := <-player.PositionCh:
 				if lastPos.Order != pos.Order {
-					fmt.Println(pos.Order)
+					fmt.Printf("%d/%d\n", pos.Order+1, len(player.Song.Orders))
 				}
 				lastPos = pos
 			}
 		}
 	}()
 
-	for playing {
-		player.GenerateAudio(audioOut)
-		if err = wavW.WriteFrame(audioOut); err != nil {
+	for playing && player.IsPlaying() {
+		generated := player.GenerateAudio(audioOut)
+		if err = wavW.WriteFrame(audioOut[:generated*2]); err != nil {
 			wavF.Close()
 			log.Fatal(err)
 		}
 	}
+	player.Stop()
 }

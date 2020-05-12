@@ -46,18 +46,19 @@ type Player struct {
 	tick          int // decrementing counter for number of ticks per row
 	rowCounter    int // which row in the order
 	ordIdx        int // current order of the song
+	playing       bool
 
 	Mute uint // bitmask of muted channels, channel 1 in LSB
 
 	PositionCh chan PlayerPosition
-	EndCh      chan struct{} // indicates end of song reached
 
 	channels []channel
 }
 
+// ChannelNoteData represents the note data for a channel
 type ChannelNoteData struct {
-	Note       string
-	Instrument int // -1 if no instrument
+	Note       string // 'A-4', 'C#3', ...
+	Instrument int    // -1 if no instrument
 	Effect     int
 	Param      int
 }
@@ -174,19 +175,41 @@ func (c *channel) volumeSlide() {
 	c.volume = vol
 }
 
+// NewPlayer returns a new Player for the given song. The Player is already
+// started.
 func NewPlayer(song *Song, samplingFrequency uint) *Player {
 	player := &Player{samplingFrequency: samplingFrequency, Song: song, Speed: 6}
 	player.channels = make([]channel, song.Channels)
-	player.EndCh = make(chan struct{})
 	player.PositionCh = make(chan PlayerPosition)
 
 	player.reset()
 	player.broadcastPosition()
+	player.Start()
 
 	return player
 }
 
+// Start tells the player to start playing. Calls to GenerateAudio will advance
+// the song position and generate audio samples.
+func (p *Player) Start() {
+	p.playing = true
+}
+
+// Stop tells the player to stop playing. Calls to GenerateAudio will not
+// advance the song position or generate audio samples. A stopped player
+// preserves state and a subsequent call to Start carries on where the player
+// left off.
+func (p *Player) Stop() {
+	p.playing = false
+}
+
+// IsPlaying returns if the song is being played
+func (p *Player) IsPlaying() bool {
+	return p.playing
+}
+
 func (p *Player) reset() {
+	p.Stop()
 	p.setTempo(125)
 	p.Speed = 6
 	p.ordIdx = 0
@@ -264,7 +287,10 @@ func (p *Player) channelTick(c *channel, ci int) {
 	}
 }
 
-func (p *Player) sequenceTick() {
+// Returns if the end of the song was reached
+func (p *Player) sequenceTick() bool {
+	finished := false
+
 	p.tick--
 	if p.tick <= 0 {
 		p.tick = p.Speed
@@ -362,13 +388,9 @@ func (p *Player) sequenceTick() {
 			p.ordIdx++
 
 			if p.ordIdx >= len(p.Song.Orders) {
-				// End of the song reached, reset player state and broadcast message
+				// End of the song reached, reset player state and stop
+				finished = true
 				p.reset()
-
-				select {
-				case p.EndCh <- struct{}{}:
-				default:
-				}
 			}
 		}
 		p.broadcastPosition()
@@ -378,6 +400,8 @@ func (p *Player) sequenceTick() {
 			p.channelTick(&p.channels[i], i)
 		}
 	}
+
+	return finished
 }
 
 func (p *Player) mixChannels(out []int16, nSamples, offset int) {
@@ -431,9 +455,21 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 	}
 }
 
-func (p *Player) GenerateAudio(out []int16) {
+// GenerateAudio fills out with stereo sample data (LRLRLR...) and returns the
+// number of stereo samples generated.
+//
+// This function also advances the player through the song. If the player is
+// paused it will generate 0 samples. In the case that the player reaches the
+// end of the song it may generate less samples than the buffer can hold.
+func (p *Player) GenerateAudio(out []int16) int {
+	if !p.playing {
+		return 0
+	}
+
 	count := len(out) / 2 // portaudio counts L & R channels separately, length 2 means one stereo sample
 	offset := 0
+	generated := 0
+
 	for count > 0 {
 		remain := p.samplesPerTick - p.tickSamplePos
 		if remain > count {
@@ -442,14 +478,18 @@ func (p *Player) GenerateAudio(out []int16) {
 
 		p.mixChannels(out, remain, offset)
 		offset += remain
+		generated += remain
 
 		p.tickSamplePos += remain
 		if p.tickSamplePos == p.samplesPerTick {
-			p.sequenceTick()
+			if p.sequenceTick() {
+				count = remain // song finished, exit
+			}
 			p.tickSamplePos = 0
 		}
 		count -= remain
 	}
+	return generated
 }
 
 func decodeNote(note []byte) (int, int, byte, byte) {
@@ -503,6 +543,10 @@ func readSampleInfo(r *bytes.Reader) (*Sample, error) {
 	return smp, nil
 }
 
+// NewSongFromBytes parses a MOD file into a Song.
+//
+// This means reading out instrument data, sample data, order
+// and pattern data into structures that the Player can use.
 func NewSongFromBytes(songBytes []byte) (*Song, error) {
 	song := &Song{Speed: 6, Tempo: 125}
 

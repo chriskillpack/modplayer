@@ -50,8 +50,6 @@ type Player struct {
 
 	Mute uint // bitmask of muted channels, channel 1 in LSB
 
-	PositionCh chan PlayerPosition
-
 	channels []channel
 }
 
@@ -68,6 +66,7 @@ func (c *ChannelNoteData) String() string {
 }
 
 // PlayerPosition holds the current position in the song
+// TODO: Make the zero object an obvious null sentinel value.
 type PlayerPosition struct {
 	Order   int
 	Pattern int
@@ -180,10 +179,8 @@ func (c *channel) volumeSlide() {
 func NewPlayer(song *Song, samplingFrequency uint) *Player {
 	player := &Player{samplingFrequency: samplingFrequency, Song: song, Speed: 6}
 	player.channels = make([]channel, song.Channels)
-	player.PositionCh = make(chan PlayerPosition)
 
 	player.reset()
-	player.broadcastPosition()
 	player.Start()
 
 	return player
@@ -208,6 +205,27 @@ func (p *Player) IsPlaying() bool {
 	return p.playing
 }
 
+func (p *Player) Position() PlayerPosition {
+	pos := PlayerPosition{Order: p.ordIdx, Pattern: int(p.Song.Orders[p.ordIdx]), Row: p.rowCounter}
+	pos.Notes = make([]ChannelNoteData, p.Channels)
+
+	pattern := int(p.Song.Orders[p.ordIdx])
+	rowDataIdx := p.rowCounter * p.Song.Channels * bytesPerChannel
+
+	for i := 0; i < p.Channels; i++ {
+		sampNum, period, effect, param := decodeNote(
+			p.Song.Patterns[pattern][rowDataIdx : rowDataIdx+bytesPerChannel])
+
+		note := &pos.Notes[i]
+		note.Note = noteStrFromPeriod(period)
+		note.Instrument = sampNum
+		note.Effect = int(effect)
+		note.Param = int(param)
+	}
+
+	return pos
+}
+
 func (p *Player) reset() {
 	p.Stop()
 	p.setTempo(125)
@@ -229,30 +247,6 @@ func (p *Player) reset() {
 func (p *Player) setTempo(tempo int) {
 	p.samplesPerTick = int((p.samplingFrequency<<1)+(p.samplingFrequency>>1)) / tempo
 	p.Tempo = tempo
-}
-
-func (p *Player) broadcastPosition() {
-	pos := PlayerPosition{Order: p.ordIdx, Pattern: int(p.Song.Orders[p.ordIdx]), Row: p.rowCounter}
-	pos.Notes = make([]ChannelNoteData, p.Channels)
-
-	pattern := int(p.Song.Orders[p.ordIdx])
-	rowDataIdx := p.rowCounter * p.Song.Channels * bytesPerChannel
-
-	for i := 0; i < p.Channels; i++ {
-		sampNum, period, effect, param := decodeNote(
-			p.Song.Patterns[pattern][rowDataIdx : rowDataIdx+bytesPerChannel])
-
-		note := &pos.Notes[i]
-		note.Note = noteStrFromPeriod(period)
-		note.Instrument = sampNum
-		note.Effect = int(effect)
-		note.Param = int(param)
-	}
-
-	select {
-	case p.PositionCh <- pos:
-	default:
-	}
 }
 
 func (p *Player) channelTick(c *channel, ci int) {
@@ -355,7 +349,6 @@ func (p *Player) sequenceTick() bool {
 				p.ordIdx++
 				// TODO handle looping
 				p.rowCounter = int((param>>4)*10 + param&0xF)
-				p.broadcastPosition()
 				// TODO skipping first row of pattern?
 			case effectExtended:
 				switch param >> 4 {
@@ -393,7 +386,6 @@ func (p *Player) sequenceTick() bool {
 				p.reset()
 			}
 		}
-		p.broadcastPosition()
 	} else {
 		// channel tick
 		for i := 0; i < p.Song.Channels; i++ {

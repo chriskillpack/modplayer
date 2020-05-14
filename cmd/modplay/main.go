@@ -42,7 +42,11 @@ func main() {
 		}
 	}()
 
-	stream, err := portaudio.OpenDefaultStream(0, 2, float64(outputBufferHz), portaudio.FramesPerBufferUnspecified, player.GenerateAudio)
+	streamCB := func(out []int16) {
+		player.GenerateAudio(out)
+	}
+
+	stream, err := portaudio.OpenDefaultStream(0, 2, float64(outputBufferHz), portaudio.FramesPerBufferUnspecified, streamCB)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -51,14 +55,14 @@ func main() {
 	stream.Start()
 	defer stream.Stop()
 
-	go func() {
-		for {
-			pos := <-player.PositionCh
-
+	lastPos := modplayer.PlayerPosition{Order: -1}
+	for player.IsPlaying() {
+		pos := player.Position()
+		if lastPos.Order != pos.Order || lastPos.Row != pos.Row {
 			fmt.Printf("%02X %02X|", pos.Order, pos.Row)
-			for i := 0; i < song.Channels; i++ {
+			for i, n := range pos.Notes {
 				if i < 4 {
-					fmt.Print(pos.Notes[i].String())
+					fmt.Print(n.String())
 					if i < 3 {
 						fmt.Print("|")
 					}
@@ -67,8 +71,7 @@ func main() {
 				}
 			}
 			fmt.Println()
+			lastPos = pos
 		}
-	}()
-
-	<-player.EndCh // wait for song to end
+	}
 }

@@ -9,8 +9,6 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/chriskillpack/modplayer"
 	"github.com/chriskillpack/modplayer/cmd/modwav/wav"
@@ -56,31 +54,18 @@ func main() {
 	}
 	defer wavW.Finish()
 
-	// Listen for SIGINT to allow a clean exit
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGINT)
-
 	audioOut := make([]int16, 2048)
 
-	playing := true
-
-	var lastPos modplayer.PlayerPosition
-
-	go func() {
-		for {
-			select {
-			case <-c:
-				playing = false
-			case pos := <-player.PositionCh:
-				if lastPos.Order != pos.Order {
-					fmt.Printf("%d/%d\n", pos.Order+1, len(player.Song.Orders))
-				}
-				lastPos = pos
-			}
+	// TODO: Make the zero object useful so we don't have to initialize with
+	// -1 to get position updates working correctly.
+	lastPos := modplayer.PlayerPosition{Order: -1}
+	for player.IsPlaying() {
+		pos := player.Position()
+		if lastPos.Order != pos.Order {
+			fmt.Printf("%d/%d\n", pos.Order+1, len(player.Song.Orders))
+			lastPos = pos
 		}
-	}()
 
-	for playing && player.IsPlaying() {
 		generated := player.GenerateAudio(audioOut)
 		if err = wavW.WriteFrame(audioOut[:generated*2]); err != nil {
 			wavF.Close()

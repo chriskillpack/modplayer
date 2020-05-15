@@ -27,9 +27,11 @@ const (
 	effectSetSpeed            = 0xF
 
 	// Extended effects (Exy), x = effect, y effect param
+	effectExtendedNoteRetrig       = 0x9
 	effectExtendedFineVolSlideUp   = 0xA
 	effectExtendedFineVolSlideDown = 0xB
 	effectExtendedNoteCut          = 0xC
+	effectExtendedNoteDelay        = 0xD
 )
 
 type Player struct {
@@ -76,7 +78,8 @@ type PlayerPosition struct {
 }
 
 type channel struct {
-	sampleIdx      int
+	sample         int // sample that is being played (or -1 if no sample)
+	sampleToPlay   int // sample _to be played_, used for Note Delay effect
 	period         int
 	portaPeriod    int // Portamento destination as a period
 	portaSpeed     int
@@ -236,7 +239,7 @@ func (p *Player) reset() {
 
 	for i := 0; i < p.Song.Channels; i++ {
 		channel := &p.channels[i]
-		channel.sampleIdx = -1
+		channel.sample = -1
 		switch i & 3 {
 		case 0, 3:
 			channel.pan = 0
@@ -275,9 +278,19 @@ func (p *Player) channelTick(c *channel, ci int) {
 
 	case effectExtended:
 		switch c.param >> 4 {
+		case effectExtendedNoteRetrig:
+			if c.effectCounter >= int(c.param&0xF) {
+				c.effectCounter = 0
+				c.samplePosition = 0
+			}
 		case effectExtendedNoteCut:
 			if c.effectCounter == int(c.param&0xF) {
 				c.volume = 0
+			}
+		case effectExtendedNoteDelay:
+			if c.effectCounter == int(c.param&0xF) {
+				c.sample = c.sampleToPlay
+				c.samplePosition = 0
 			}
 		}
 	}
@@ -316,8 +329,11 @@ func (p *Player) sequenceTick() bool {
 			if period > 0 {
 				// ... save it away as the porta to note destination
 				channel.portaPeriod = period
+				// ... store the sample to play in case there is a note delay effect
+				channel.sampleToPlay = sampNum - 1
 				// ... restart the sample if effect isn't 3, 5 or 0xEDx
-				if effect != effectPortaToNote && effect != effectPortaToNoteVolSlide && !(effect == 0xE && param>>4 == 0xD) {
+				if effect != effectPortaToNote && effect != effectPortaToNoteVolSlide &&
+					!(effect == 0xE && param>>4 == effectExtendedNoteDelay) {
 					channel.samplePosition = 0
 
 					// ... reset the period
@@ -325,7 +341,7 @@ func (p *Player) sequenceTick() bool {
 
 					// ... assign the new instrument if one was provided
 					if sampNum > 0 && sampNum < 32 {
-						channel.sampleIdx = sampNum - 1
+						channel.sample = sampNum - 1
 					}
 				}
 			}
@@ -342,6 +358,7 @@ func (p *Player) sequenceTick() bool {
 					p.setTempo(int(param))
 				} else {
 					p.Speed = int(param)
+					p.tick = p.Speed
 				}
 			case effectSampleOffset:
 				channel.samplePosition = uint(param) << 24
@@ -407,7 +424,7 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 	for chanIdx := range p.channels {
 		channel := &p.channels[chanIdx]
 
-		if channel.sampleIdx == -1 {
+		if channel.sample == -1 {
 			continue
 		}
 
@@ -415,7 +432,7 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 			continue
 		}
 
-		sample := &p.Song.Samples[channel.sampleIdx]
+		sample := &p.Song.Samples[channel.sample]
 		if sample.Length == 0 {
 			continue
 		}
@@ -442,7 +459,7 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 				if sample.LoopLen > 0 {
 					pos = uint(sample.LoopStart) << 16
 				} else {
-					channel.sampleIdx = -1 // turn off the channel
+					channel.sample = -1 // turn off the channel
 					break
 				}
 			}

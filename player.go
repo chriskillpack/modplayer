@@ -19,6 +19,7 @@ const (
 	effectPortaToNoteVolSlide = 0x5
 	effectSampleOffset        = 0x9
 	effectVolumeSlide         = 0xA
+	effectJumpToPattern       = 0xB
 	effectSetVolume           = 0xC
 	effectPatternBrk          = 0xD
 	effectExtended            = 0xE
@@ -362,11 +363,18 @@ func (p *Player) sequenceTick() bool {
 				channel.samplePosition = uint(param) << 24
 			case effectSetVolume:
 				channel.volume = int(param)
+			case effectJumpToPattern:
+				p.ordIdx = int(param)
+				if p.ordIdx >= len(p.Orders) {
+					p.ordIdx = len(p.Orders) - 1
+				}
+				p.rowCounter = -1
 			case effectPatternBrk:
 				p.ordIdx++
-				// TODO handle looping
-				p.rowCounter = int((param>>4)*10 + param&0xF)
-				// TODO skipping first row of pattern?
+				p.rowCounter = int((param>>4)*10+param&0xF) - 1
+				if p.rowCounter >= 64 {
+					p.rowCounter = 0
+				}
 			case effectExtended:
 				switch param >> 4 {
 				case effectExtendedFineVolSlideUp:

@@ -1,5 +1,3 @@
-// Useful notes https://github.com/AntonioND/gbt-player/blob/master/mod2gbt/FMODDOC.TXT
-
 package modplayer
 
 import (

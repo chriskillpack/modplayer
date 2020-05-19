@@ -16,7 +16,9 @@ const (
 	effectPortamentoUp        = 0x1
 	effectPortamentoDown      = 0x2
 	effectPortaToNote         = 0x3
+	effectVibrato             = 0x4 // TODO: Complete
 	effectPortaToNoteVolSlide = 0x5
+	effectTremolo             = 0x7 // TODO: Complete
 	effectSampleOffset        = 0x9
 	effectVolumeSlide         = 0xA
 	effectJumpToPattern       = 0xB
@@ -87,6 +89,16 @@ type channel struct {
 	fineTune       int
 	samplePosition uint
 
+	tremoloDepth  int
+	tremoloSpeed  int
+	tremoloPhase  int
+	tremoloAdjust int
+
+	vibratoDepth  int
+	vibratoSpeed  int
+	vibratoPhase  int
+	vibratoAdjust int
+
 	effect        byte
 	param         byte
 	effectCounter int
@@ -136,6 +148,17 @@ var (
 	fineTuning = []int{
 		4340, 4308, 4277, 4247, 4216, 4186, 4156, 4126,
 		4096, 4067, 4037, 4008, 3979, 3951, 3922, 3894,
+	}
+
+	// ProTracker sine table. 32-elements representing the first half of the sine
+	// period. The second half of the period has the same magnitude but with the
+	// sign flipped: 0, -24, -49, ... To use the sine table:
+	// IF phase >= 32 THEN sineTable[phase & 31]
+	//                ELSE -sineTable[phase & 31]
+	// phase = phase & 63
+	sineTable = []int{
+		0, 24, 49, 74, 97, 120, 141, 161, 180, 197, 212, 224, 235, 244, 250, 253,
+		255, 253, 250, 244, 235, 224, 212, 197, 180, 161, 141, 120, 97, 74, 49, 24,
 	}
 
 	// Literal notes
@@ -235,10 +258,20 @@ func (p *Player) reset() {
 	p.setTempo(125)
 	p.Speed = 6
 	p.ordIdx = 0
+	p.rowCounter = 0
 
 	for i := 0; i < p.Song.Channels; i++ {
 		channel := &p.channels[i]
 		channel.sample = -1
+		channel.tremoloDepth = 0
+		channel.tremoloSpeed = 0
+		channel.tremoloPhase = 0
+		channel.tremoloAdjust = 0
+		channel.vibratoDepth = 0
+		channel.vibratoSpeed = 0
+		channel.vibratoPhase = 0
+		channel.vibratoAdjust = 0
+
 		switch i & 3 {
 		case 0, 3:
 			channel.pan = 0
@@ -269,9 +302,21 @@ func (p *Player) channelTick(c *channel, ci int) {
 		}
 	case effectPortaToNote:
 		c.portaToNote()
+	case effectVibrato:
+		c.vibratoAdjust = (sineTable[c.vibratoPhase&31] * c.vibratoDepth) >> 7
+		if c.vibratoPhase > 32 {
+			c.vibratoAdjust = -c.vibratoAdjust
+		}
+		c.vibratoPhase = (c.vibratoPhase + c.vibratoSpeed) & 63
 	case effectPortaToNoteVolSlide:
 		c.portaToNote()
 		c.volumeSlide()
+	case effectTremolo:
+		c.tremoloAdjust = (sineTable[c.tremoloPhase&31] * c.tremoloDepth) >> 6
+		if c.tremoloPhase > 32 {
+			c.tremoloAdjust = -c.tremoloAdjust
+		}
+		c.tremoloPhase = (c.tremoloPhase + c.tremoloSpeed) & 63
 	case effectVolumeSlide:
 		c.volumeSlide()
 
@@ -290,6 +335,8 @@ func (p *Player) channelTick(c *channel, ci int) {
 			if c.effectCounter == int(c.param&0xF) {
 				c.sample = c.sampleToPlay
 				c.samplePosition = 0
+				c.tremoloPhase = 0
+				c.vibratoPhase = 0
 			}
 		}
 	}
@@ -341,6 +388,8 @@ func (p *Player) sequenceTick() bool {
 					// ... assign the new instrument if one was provided
 					if sampNum > 0 && sampNum < 32 {
 						channel.sample = sampNum - 1
+						channel.tremoloPhase = 0
+						channel.vibratoPhase = 0
 					}
 				}
 			}
@@ -351,6 +400,20 @@ func (p *Player) sequenceTick() bool {
 			case effectPortaToNote:
 				if param > 0 {
 					channel.portaSpeed = int(param)
+				}
+			case effectVibrato:
+				if param&0xF0 > 0 {
+					channel.vibratoSpeed = int(param >> 4)
+				}
+				if param&0xF > 0 {
+					channel.vibratoDepth = int(param & 0xF)
+				}
+			case effectTremolo:
+				if param&0xF0 > 0 {
+					channel.tremoloSpeed = int(param >> 4)
+				}
+				if param&0xF > 0 {
+					channel.tremoloDepth = int(param & 0xF)
 				}
 			case effectSetSpeed:
 				if param >= 0x20 {
@@ -443,18 +506,26 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 			continue
 		}
 
-		playbackHz := int(retracePALHz / float32(channel.period*2))
+		period := (channel.period + channel.vibratoAdjust) * 2
+		playbackHz := int(retracePALHz / float32(period))
 		dr := uint(playbackHz<<16) / p.samplingFrequency
 		pos := channel.samplePosition
-		lvol := ((127 - channel.pan) * channel.volume) >> 7
-		rvol := (channel.pan * channel.volume) >> 7
+		vol := channel.volume + channel.tremoloAdjust
+		if vol >= 64 {
+			vol = 64
+		}
+		if vol < 0 {
+			vol = 0
+		}
+		lvol := ((127 - channel.pan) * vol) >> 7
+		rvol := (channel.pan * vol) >> 7
 
 		// TODO: Full pan left or right optimization in mixer
 		// TODO: Move sample loop check outside of mixer inner loop
 		for off := offset * 2; off < (offset+nSamples)*2; off += 2 {
 			// WARNING: no clipping when mixing, this seems to be the case in other players I looked at.
 			// I think the expectation is that the musician not play samples too loudly.
-			if channel.volume > 0 {
+			if vol > 0 {
 				samp := int(sample.Data[pos>>16])
 				out[off+0] += int16(samp * lvol)
 				out[off+1] += int16(samp * rvol)

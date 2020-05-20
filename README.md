@@ -24,6 +24,14 @@ go install ./cmd/modplay
 modplay awesome.mod
 ```
 
+# MOD files
+
+You can find MOD files at [The Mod Archive](https://modarchive.org/) but I included a couple in the `mods` folder that I used to test playback:
+
+space_debris.mod - one of the most popular MODs on The Mod Archive
+dope.mod - From the PC demo [DOPE](http://www.pouet.net/prod.php?which=37) by Complex
+believe.mod - From the 64kb intro [Believe](http://www.pouet.net/prod.php?which=1151) by Valhalla
+
 # Docs
 
 [FireLight's MOD format document](docs/fmoddoc.txt) was the most useful document. I converted the original doc that is written with box drawing characters from PC code page 437 into Unicode.

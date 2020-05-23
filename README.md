@@ -17,14 +17,16 @@ The package consists of two main parts, a `Song` and a `Player`. The `Song` stru
 There are two binaries provided, `modwav` which converts MOD files to RIFF WAVE format files. It outputs 44.1Khz WAV files (not adjustable for now). Works on all platforms.
 
 ```bash
-go install ./cmd/modwav
+cd cmd/modwav
+go install .
 modwav -wav out.wav awesome.mod
 ```
 
 The second binary is `modplay` which uses `portaudio` to play the MOD file to audio out on your computer. I've included the Windows DLL `portaudio_x64.dll`, you will need to compile portaudio for other platforms. Good luck with that, it can be a bit of a hassle.
 
 ```bash
-go install ./cmd/modplay
+cd cmd/modplay
+go install .
 modplay awesome.mod
 ```
 

@@ -13,14 +13,16 @@ Right now only MOD files are supported. I hope to add S3M support.
 There are two binaries provided, `modwav` which converts MOD files to RIFF WAVE format files. This works on all platforms.
 
 ```bash
-go install ./cmd/modwav
+cd cmd/modwav
+go install .
 modwav -wav out.wav awesome.mod
 ```
 
 The second binary is `modplay` which uses `portaudio` to play the MOD file. Only Windows supported for now. You will need to make sure `portaudio_x64.dll` is part of your DLL search path.
 
 ```bash
-go install ./cmd/modplay
+cd cmd/modplay
+go install .
 modplay awesome.mod
 ```
 

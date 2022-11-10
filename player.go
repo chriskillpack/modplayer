@@ -396,6 +396,9 @@ func (p *Player) sequenceTick() bool {
 			channel.effect = effect
 			channel.param = param
 
+			channel.vibratoAdjust = 0
+			channel.tremoloAdjust = 0
+
 			switch effect {
 			case effectPortaToNote:
 				if param > 0 {

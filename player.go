@@ -369,14 +369,15 @@ func (p *Player) sequenceTick() bool {
 
 				channel.volume = smp.Volume
 				channel.fineTune = smp.FineTune
+				channel.sampleToPlay = sampNum - 1
+				channel.samplePosition = 0
 			}
 
 			// If there is a period...
 			if period > 0 {
 				// ... save it away as the porta to note destination
 				channel.portaPeriod = period
-				// ... store the sample to play in case there is a note delay effect
-				channel.sampleToPlay = sampNum - 1
+
 				// ... restart the sample if effect isn't 3, 5 or 0xEDx
 				if effect != effectPortaToNote && effect != effectPortaToNoteVolSlide &&
 					!(effect == 0xE && param>>4 == effectExtendedNoteDelay) {
@@ -386,11 +387,9 @@ func (p *Player) sequenceTick() bool {
 					channel.period = (period * fineTuning[channel.fineTune]) >> 12
 
 					// ... assign the new instrument if one was provided
-					if sampNum > 0 && sampNum < 32 {
-						channel.sample = sampNum - 1
-						channel.tremoloPhase = 0
-						channel.vibratoPhase = 0
-					}
+					channel.sample = channel.sampleToPlay
+					channel.tremoloPhase = 0
+					channel.vibratoPhase = 0
 				}
 			}
 			channel.effect = effect

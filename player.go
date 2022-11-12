@@ -499,10 +499,6 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 			continue
 		}
 
-		if (p.Mute & (1 << chanIdx)) != 0 {
-			continue
-		}
-
 		sample := &p.Song.Samples[channel.sample]
 		if sample.Length == 0 {
 			continue
@@ -516,9 +512,13 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 		if vol >= 64 {
 			vol = 64
 		}
-		if vol < 0 {
-			vol = 0
+
+		// If the volume is off or the channel muted
+		if vol <= 0 || (p.Mute&(1<<chanIdx)) != 0 {
+			channel.samplePosition = pos + dr*uint(nSamples)
+			continue
 		}
+
 		lvol := ((127 - channel.pan) * vol) >> 7
 		rvol := (channel.pan * vol) >> 7
 
@@ -527,11 +527,9 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 		for off := offset * 2; off < (offset+nSamples)*2; off += 2 {
 			// WARNING: no clipping when mixing, this seems to be the case in other players I looked at.
 			// I think the expectation is that the musician not play samples too loudly.
-			if vol > 0 {
-				samp := int(sample.Data[pos>>16])
-				out[off+0] += int16(samp * lvol)
-				out[off+1] += int16(samp * rvol)
-			}
+			samp := int(sample.Data[pos>>16])
+			out[off+0] += int16(samp * lvol)
+			out[off+1] += int16(samp * rvol)
 
 			pos += dr
 			if pos >= uint(sample.Length<<16) {

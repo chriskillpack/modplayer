@@ -39,8 +39,14 @@ You can find MOD files at [The Mod Archive](https://modarchive.org/) but I inclu
 `dope.mod` - From the PC demo [DOPE](http://www.pouet.net/prod.php?which=37) by Complex\
 `believe.mod` - From the 64kb PC intro [Believe](http://www.pouet.net/prod.php?which=1151) by Valhalla
 
-# Docs
+# Technical Docs
 
 [FireLight's MOD format document](docs/fmoddoc.txt) was the most useful document. I converted the original doc that is written with box drawing characters from PC code page 437 into Unicode.
 
 I used [micromod](https://github.com/martincameron/micromod) for some implementation ideas.
+
+# TODO
+
+- S3M support
+- Fix clicking on looping samples (e.g. in Dope)
+- Optimizations in mixer: full-pan fast path, avoid inner loop checks for end of sample or loop point

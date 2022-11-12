@@ -9,12 +9,16 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/chriskillpack/modplayer"
 	"github.com/chriskillpack/modplayer/cmd/modwav/wav"
 )
 
-const outputHz = 44100
+var (
+	flagWAVOut = flag.String("wav", "", "output location for WAV file")
+	flagHz     = flag.Int("hz", 44100, "Output hz")
+)
 
 func main() {
 	log.SetFlags(0)
@@ -24,15 +28,21 @@ func main() {
 		log.Fatal("Missing MOD filename")
 	}
 
-	wavOut := flag.String("wav", "", "output to a WAVE file")
 	flag.Parse()
-	if *wavOut == "" {
-		log.Fatal("Not -wav option provided")
-	}
-
-	modF, err := ioutil.ReadFile(flag.Args()[0])
+	modName := flag.Args()[0]
+	modF, err := ioutil.ReadFile(modName)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	// If no output file was specified then default to the current directory
+	// with the same filename and a '.wav' extension, e.g.
+	// /music/songs/mod/foo.mod would default to ./foo.wav
+	if *flagWAVOut == "" {
+		// If no WAV file output specified, write it out the current directory
+		base := filepath.Base(modName)
+		baseStripped := base[:len(base)-len(filepath.Ext(modName))]
+		*flagWAVOut = baseStripped + ".wav"
 	}
 
 	song, err := modplayer.NewSongFromBytes(modF)
@@ -40,16 +50,16 @@ func main() {
 		log.Fatal(err)
 	}
 
-	player := modplayer.NewPlayer(song, outputHz)
+	player := modplayer.NewPlayer(song, uint(*flagHz))
 
-	wavF, err := os.Create(*wavOut)
+	wavF, err := os.Create(*flagWAVOut)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer wavF.Close()
 
 	var wavW *wav.Writer
-	if wavW, err = wav.NewWriter(wavF, outputHz); err != nil {
+	if wavW, err = wav.NewWriter(wavF, *flagHz); err != nil {
 		log.Fatal(err)
 	}
 	defer wavW.Finish()

@@ -21,7 +21,7 @@ cd cmd/modwav
 go run . -hz 22050 awesome.mod  # Generate a 22.5Khz WAVE file from awesome.mod called awesome.wav
 ```
 
-You can use the `-hz` and `-wav` command line options to affect quality (default 44.1Khz) and output file, by default the same filename with a `.wav` extension in the current directory.
+You can use the `-hz` and `-wav` command line options to affect quality (default 44.1Khz) and output file, by default the same filename with a `.wav` extension in the current directory. The `-boost` flag can be used to boost the output volume, but this can cause clipping.
 
 The second binary is `modplay` which uses `portaudio` to play the MOD file to audio out on your computer. I've included the Windows DLL `portaudio_x64.dll`, you will need to compile portaudio for other platforms. Good luck with that, it can be a bit of a hassle.
 

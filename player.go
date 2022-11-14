@@ -38,6 +38,7 @@ const (
 type Player struct {
 	*Song
 	samplingFrequency uint
+	volBoost          uint
 
 	// song configuration
 	Tempo          int
@@ -69,7 +70,6 @@ func (c *ChannelNoteData) String() string {
 }
 
 // PlayerPosition holds the current position in the song
-// TODO: Make the zero object an obvious null sentinel value.
 type PlayerPosition struct {
 	Order   int
 	Pattern int
@@ -201,14 +201,23 @@ func (c *channel) volumeSlide() {
 
 // NewPlayer returns a new Player for the given song. The Player is already
 // started.
-func NewPlayer(song *Song, samplingFrequency uint) *Player {
-	player := &Player{samplingFrequency: samplingFrequency, Song: song, Speed: 6}
+func NewPlayer(song *Song, samplingFrequency, volBoost uint) (*Player, error) {
+	player := &Player{
+		samplingFrequency: samplingFrequency,
+		volBoost:          volBoost,
+		Song:              song,
+		Speed:             6,
+	}
+	if volBoost < 1 || volBoost > 4 {
+		return nil, fmt.Errorf("invalid volume boost")
+	}
+
 	player.channels = make([]channel, song.Channels)
 
 	player.reset()
 	player.Start()
 
-	return player
+	return player, nil
 }
 
 // Start tells the player to start playing. Calls to GenerateAudio will advance
@@ -518,6 +527,7 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 			channel.samplePosition = pos + dr*uint(nSamples)
 			continue
 		}
+		vol *= int(p.volBoost)
 
 		lvol := ((127 - channel.pan) * vol) >> 7
 		rvol := (channel.pan * vol) >> 7
@@ -691,7 +701,7 @@ func NewSongFromBytes(songBytes []byte) (*Song, error) {
 	case "CH": // xxCH, xx = number of channels as two digit decimal
 		song.Channels = (int(x[0])-48)*10 + (int(x[1] - 48))
 	default:
-		return nil, fmt.Errorf("Unrecognized MOD format %s", string(x))
+		return nil, fmt.Errorf("unrecognized MOD format %s", string(x))
 	}
 
 	// Read pattern data

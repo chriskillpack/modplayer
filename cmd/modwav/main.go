@@ -17,7 +17,8 @@ import (
 
 var (
 	flagWAVOut = flag.String("wav", "", "output location for WAV file")
-	flagHz     = flag.Int("hz", 44100, "Output hz")
+	flagHz     = flag.Int("hz", 44100, "output hz")
+	flagBoost  = flag.Uint("boost", 1, "volume boost, an integer between 1 and 4")
 )
 
 func main() {
@@ -50,7 +51,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	player := modplayer.NewPlayer(song, uint(*flagHz))
+	player, err := modplayer.NewPlayer(song, uint(*flagHz), *flagBoost)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	wavF, err := os.Create(*flagWAVOut)
 	if err != nil {
@@ -66,12 +70,10 @@ func main() {
 
 	audioOut := make([]int16, 2048)
 
-	// TODO: Make the zero object useful so we don't have to initialize with
-	// -1 to get position updates working correctly.
-	lastPos := modplayer.PlayerPosition{Order: -1}
+	var lastPos modplayer.PlayerPosition
 	for player.IsPlaying() {
 		pos := player.Position()
-		if lastPos.Order != pos.Order {
+		if lastPos.Notes == nil || (lastPos.Order != pos.Order) {
 			fmt.Printf("%d/%d\n", pos.Order+1, len(player.Song.Orders))
 			lastPos = pos
 		}

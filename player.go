@@ -3,6 +3,7 @@ package modplayer
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 )
 
@@ -209,7 +210,7 @@ func NewPlayer(song *Song, samplingFrequency, volBoost uint) (*Player, error) {
 		Speed:             6,
 	}
 	if volBoost < 1 || volBoost > 4 {
-		return nil, fmt.Errorf("invalid volume boost")
+		return nil, errors.New("invalid volume boost")
 	}
 
 	player.channels = make([]channel, song.Channels)
@@ -532,17 +533,31 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 		lvol := ((127 - channel.pan) * vol) >> 7
 		rvol := (channel.pan * vol) >> 7
 
-		// TODO: Full pan left or right optimization in mixer
-		// TODO: Move sample loop check outside of mixer inner loop
-		for off := offset * 2; off < (offset+nSamples)*2; off += 2 {
-			// WARNING: no clipping when mixing, this seems to be the case in other players I looked at.
-			// I think the expectation is that the musician not play samples too loudly.
-			samp := int(sample.Data[pos>>16])
-			out[off+0] += int16(samp * lvol)
-			out[off+1] += int16(samp * rvol)
+		sampEnd := uint(sample.Length << 16)
 
-			pos += dr
-			if pos >= uint(sample.Length<<16) {
+		cur := offset * 2
+		end := (offset + nSamples) * 2
+
+		for cur < end {
+			// Compute the position in the sample by end
+			epos := pos + uint((end-cur)/2)*dr
+			// If the sample ends before the end of this loop iteration only run to that
+			if epos >= sampEnd {
+				epos = sampEnd
+			}
+
+			// TODO: Full pan left or right optimization in mixer
+			for pos < epos {
+				// WARNING: no clamping when mixing, this seems to be the case in other players I looked at.
+				// I think the expectation is that the musician not play samples too loudly.
+				sd := int(sample.Data[pos>>16])
+				out[cur+0] += int16(sd * lvol)
+				out[cur+1] += int16(sd * rvol)
+
+				pos += dr
+				cur += 2
+			}
+			if pos >= sampEnd {
 				if sample.LoopLen > 0 {
 					pos = uint(sample.LoopStart) << 16
 				} else {

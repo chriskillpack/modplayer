@@ -49,4 +49,4 @@ I used [micromod](https://github.com/martincameron/micromod) for some implementa
 
 - S3M support
 - Fix clicking on looping samples (e.g. in Dope)
-- Optimizations in mixer: full-pan fast path, avoid inner loop checks for end of sample or loop point
+- Optimizations in mixer: full-pan fast path

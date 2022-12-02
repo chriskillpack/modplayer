@@ -24,13 +24,13 @@ var (
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("modwav: ")
+	flag.Parse()
 
-	if len(os.Args) < 2 {
+	if len(flag.Args()) == 0 {
 		log.Fatal("Missing MOD filename")
 	}
 
-	flag.Parse()
-	modName := flag.Args()[0]
+	modName := flag.Arg(0)
 	modF, err := ioutil.ReadFile(modName)
 	if err != nil {
 		log.Fatal(err)

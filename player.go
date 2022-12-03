@@ -497,9 +497,13 @@ func (p *Player) sequenceTick() bool {
 }
 
 func (p *Player) mixChannels(out []int16, nSamples, offset int) {
-	for s := offset * 2; s < (offset+nSamples)*2; s += 2 {
-		out[s+0] = 0
-		out[s+1] = 0
+	// Zero out the portion of out that will be written to.
+	// The compiler will identify the range loop form and replace with a
+	// runtime.memclrNoHeapPointers call which has architecture specific
+	// optimizations.
+	o := out[offset*2 : (offset+nSamples)*2]
+	for i := range o {
+		o[i] = 0
 	}
 
 	for chanIdx := range p.channels {

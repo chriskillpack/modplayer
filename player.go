@@ -263,6 +263,19 @@ func (p *Player) Position() PlayerPosition {
 	return pos
 }
 
+// SetOrder sets the position in the song to play from, also resetting play
+// position to the first row. If the position is off the end of the song then
+// it will be set back to the beginning of the final order. No attempt is made
+// to reset the player internals.
+func (p *Player) SetOrder(order uint) {
+	if int(order) >= len(p.Orders) {
+		p.ordIdx = len(p.Orders) - 1
+	} else {
+		p.ordIdx = int(order)
+	}
+	p.rowCounter = 0
+}
+
 func (p *Player) reset() {
 	p.Stop()
 	p.setTempo(125)
@@ -585,7 +598,7 @@ func (p *Player) GenerateAudio(out []int16) int {
 		return 0
 	}
 
-	count := len(out) / 2 // portaudio counts L & R channels separately, length 2 means one stereo sample
+	count := len(out) / 2 // L&R samples are interleaved, so out length 2 is asking for one stereo sample
 	offset := 0
 	generated := 0
 
@@ -732,13 +745,8 @@ func NewSongFromBytes(songBytes []byte) (*Song, error) {
 
 	// Read sample data
 	for i := 0; i < 31; i++ {
-		tmp := make([]byte, song.Samples[i].Length)
-		buf.Read(tmp)
-
 		song.Samples[i].Data = make([]int8, song.Samples[i].Length)
-		for j, sd := range tmp {
-			song.Samples[i].Data[j] = int8(sd)
-		}
+		binary.Read(buf, binary.LittleEndian, song.Samples[i].Data)
 	}
 
 	return song, nil

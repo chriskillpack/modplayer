@@ -11,12 +11,10 @@ import (
 )
 
 var (
-	flagHz    = flag.Int("hz", 44100, "output hz")
-	flagBoost = flag.Uint("boost", 1, "volume boost, an integer between 1 and 4")
+	flagHz       = flag.Int("hz", 44100, "output hz")
+	flagBoost    = flag.Uint("boost", 1, "volume boost, an integer between 1 and 4")
+	flagStartOrd = flag.Uint("start", 0, "starting order in the MOD, clamped to song max")
 )
-
-// TODO
-// 1) Figure out how to disable portaudio debug text
 
 func main() {
 	log.SetFlags(0)
@@ -38,6 +36,7 @@ func main() {
 	}
 
 	player, err := modplayer.NewPlayer(song, uint(*flagHz), *flagBoost)
+	player.SetOrder(*flagStartOrd)
 	if err != nil {
 		log.Fatal(err)
 	}

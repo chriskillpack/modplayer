@@ -1,16 +1,19 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
-	"os"
 
 	"github.com/chriskillpack/modplayer"
 	"github.com/gordonklaus/portaudio"
 )
 
-const outputBufferHz = 44100
+var (
+	flagHz    = flag.Int("hz", 44100, "output hz")
+	flagBoost = flag.Uint("boost", 1, "volume boost, an integer between 1 and 4")
+)
 
 // TODO
 // 1) Figure out how to disable portaudio debug text
@@ -18,12 +21,13 @@ const outputBufferHz = 44100
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("modplay: ")
+	flag.Parse()
 
-	if len(os.Args) < 2 {
+	if len(flag.Args()) == 0 {
 		log.Fatal("Missing MOD filename")
 	}
 
-	modF, err := ioutil.ReadFile(os.Args[1])
+	modF, err := ioutil.ReadFile(flag.Arg(0))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -33,7 +37,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	player := modplayer.NewPlayer(song, outputBufferHz)
+	player, err := modplayer.NewPlayer(song, uint(*flagHz), *flagBoost)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	initErr := portaudio.Initialize()
 	defer func() {
@@ -46,7 +53,7 @@ func main() {
 		player.GenerateAudio(out)
 	}
 
-	stream, err := portaudio.OpenDefaultStream(0, 2, float64(outputBufferHz), portaudio.FramesPerBufferUnspecified, streamCB)
+	stream, err := portaudio.OpenDefaultStream(0, 2, float64(*flagHz), portaudio.FramesPerBufferUnspecified, streamCB)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -244,11 +244,15 @@ func (p *Player) IsPlaying() bool {
 
 // Position returns the current position of the player in the song
 func (p *Player) Position() PlayerPosition {
-	pos := PlayerPosition{Order: p.ordIdx, Pattern: int(p.Song.Orders[p.ordIdx]), Row: p.rowCounter}
+	rc := p.rowCounter
+	if rc < 0 {
+		rc = 0
+	}
+	pos := PlayerPosition{Order: p.ordIdx, Pattern: int(p.Song.Orders[p.ordIdx]), Row: rc}
 	pos.Notes = make([]ChannelNoteData, p.Channels)
 
 	pattern := int(p.Song.Orders[p.ordIdx])
-	rowDataIdx := p.rowCounter * p.Song.Channels * bytesPerChannel
+	rowDataIdx := p.rowDataIndex()
 
 	for i := 0; i < p.Channels; i++ {
 		sampNum, period, effect, param := decodeNote(
@@ -377,7 +381,7 @@ func (p *Player) sequenceTick() bool {
 		p.tick = p.Speed
 
 		pattern := int(p.Song.Orders[p.ordIdx])
-		rowDataIdx := p.rowCounter * p.Song.Channels * bytesPerChannel
+		rowDataIdx := p.rowDataIndex()
 
 		for i := 0; i < p.Song.Channels; i++ {
 			channel := &p.channels[i]
@@ -461,10 +465,16 @@ func (p *Player) sequenceTick() bool {
 				}
 				p.rowCounter = -1
 			case effectPatternBrk:
+				// This code can race, we subtract 1 to offset the row counter
+				// increment after effect processing. If the player position is
+				// read (e.g. generating audio) after processing this effect and
+				// incrementing the row counter below then an invalid row will
+				// be used. Other code that uses the row clamps to 0 but it
+				// would be ideal to find a way to eliminate the race.
 				p.ordIdx++
 				p.rowCounter = int((param>>4)*10+param&0xF) - 1
 				if p.rowCounter >= 64 {
-					p.rowCounter = 0
+					p.rowCounter = -1
 				}
 			case effectExtended:
 				switch param >> 4 {
@@ -625,6 +635,18 @@ func (p *Player) GenerateAudio(out []int16) int {
 		count -= remain
 	}
 	return generated
+}
+
+// There is a race condition where the row counter can be set to -1 and then
+// used resulting in invalid offsets. This function protects against that
+// issue but it would be ideal to eliminate the race condition.
+func (p *Player) rowDataIndex() int {
+	rc := p.rowCounter
+	if rc < 0 {
+		rc = 0
+	}
+
+	return rc * p.Song.Channels * bytesPerChannel
 }
 
 func decodeNote(note []byte) (int, int, byte, byte) {

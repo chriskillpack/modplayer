@@ -5,7 +5,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -62,27 +61,21 @@ func main() {
 	}
 	defer wavF.Close()
 
-	var wavW *wav.Writer
-	if wavW, err = wav.NewWriter(wavF, *flagHz); err != nil {
+	wavW, err := wav.NewWriter(wavF, *flagHz)
+	if err != nil {
 		log.Fatal(err)
 	}
 	defer wavW.Finish()
 
 	audioOut := make([]int16, 2048)
 
-	var lastPos modplayer.PlayerPosition
 	for player.IsPlaying() {
-		pos := player.Position()
-		if lastPos.Notes == nil || (lastPos.Order != pos.Order) {
-			fmt.Printf("%d/%d\n", pos.Order+1, len(player.Song.Orders))
-			lastPos = pos
-		}
-
 		generated := player.GenerateAudio(audioOut)
 		if err = wavW.WriteFrame(audioOut[:generated*2]); err != nil {
 			wavF.Close()
 			log.Fatal(err)
 		}
 	}
+
 	player.Stop()
 }

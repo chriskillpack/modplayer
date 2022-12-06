@@ -36,6 +36,8 @@ const (
 	effectExtendedNoteDelay        = 0xD
 )
 
+// Player can play a MOD file. It must be initialized with a Song,
+// see NewPlayer().
 type Player struct {
 	*Song
 	samplingFrequency uint
@@ -240,6 +242,7 @@ func (p *Player) IsPlaying() bool {
 	return p.playing
 }
 
+// Position returns the current position of the player in the song
 func (p *Player) Position() PlayerPosition {
 	pos := PlayerPosition{Order: p.ordIdx, Pattern: int(p.Song.Orders[p.ordIdx]), Row: p.rowCounter}
 	pos.Notes = make([]ChannelNoteData, p.Channels)

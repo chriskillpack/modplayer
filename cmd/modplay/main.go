@@ -61,10 +61,10 @@ func main() {
 	stream.Start()
 	defer stream.Stop()
 
-	lastPos := modplayer.PlayerPosition{Order: -1}
+	var lastPos modplayer.PlayerPosition
 	for player.IsPlaying() {
 		pos := player.Position()
-		if lastPos.Order != pos.Order || lastPos.Row != pos.Row {
+		if lastPos.Notes == nil || lastPos.Order != pos.Order || lastPos.Row != pos.Row {
 			fmt.Printf("%02X %02X|", pos.Order, pos.Row)
 			for i, n := range pos.Notes {
 				if i < 4 {

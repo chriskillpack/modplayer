@@ -770,8 +770,21 @@ func NewSongFromBytes(songBytes []byte) (*Song, error) {
 
 	// Read sample data
 	for i := 0; i < 31; i++ {
+		// Some MOD files store a sample length longer than what remains in the
+		// buffer, e.g. believe.mod sample index 8 has a recorded length of 2358 but
+		// only 2353 bytes remain in the file. binary.Read will return EOF and not read
+		// anything in this situation, so read in the max available.
+		n := song.Samples[i].Length
+		if n > buf.Len() {
+			n = buf.Len()
+		}
+
 		song.Samples[i].Data = make([]int8, song.Samples[i].Length)
-		binary.Read(buf, binary.LittleEndian, song.Samples[i].Data)
+		err := binary.Read(buf, binary.LittleEndian, song.Samples[i].Data[0:n])
+		if err != nil {
+			return nil, err
+		}
+		song.Samples[i].Length = n
 	}
 
 	return song, nil

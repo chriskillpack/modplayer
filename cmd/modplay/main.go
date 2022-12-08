@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/chriskillpack/modplayer"
 	"github.com/gordonklaus/portaudio"
@@ -60,6 +63,16 @@ func main() {
 
 	stream.Start()
 	defer stream.Stop()
+
+	sigch := make(chan os.Signal, 1)
+	signal.Notify(sigch, syscall.SIGINT)
+	go func() {
+		<-sigch
+		player.Stop()
+		stream.Stop()
+		portaudio.Terminate()
+		os.Exit(0)
+	}()
 
 	var lastPos modplayer.PlayerPosition
 	for player.IsPlaying() {

@@ -10,13 +10,20 @@ import (
 	"syscall"
 
 	"github.com/chriskillpack/modplayer"
+	"github.com/fatih/color"
 	"github.com/gordonklaus/portaudio"
 )
 
 var (
 	flagHz       = flag.Int("hz", 44100, "output hz")
 	flagBoost    = flag.Uint("boost", 1, "volume boost, an integer between 1 and 4")
-	flagStartOrd = flag.Uint("start", 0, "starting order in the MOD, clamped to song max")
+	flagStartOrd = flag.Int("start", 0, "starting order in the MOD, clamped to song max")
+)
+
+const (
+	escape     = "\x1b["
+	hideCursor = escape + "?25l"
+	showCursor = escape + "?25h"
 )
 
 func main() {
@@ -39,10 +46,10 @@ func main() {
 	}
 
 	player, err := modplayer.NewPlayer(song, uint(*flagHz), *flagBoost)
-	player.SetOrder(*flagStartOrd)
 	if err != nil {
 		log.Fatal(err)
 	}
+	player.SeekTo(*flagStartOrd, 0)
 
 	initErr := portaudio.Initialize()
 	defer func() {
@@ -71,26 +78,64 @@ func main() {
 		player.Stop()
 		stream.Stop()
 		portaudio.Terminate()
+
+		fmt.Print(showCursor)
 		os.Exit(0)
 	}()
 
+	// Hide the cursor
+	fmt.Print(hideCursor)
+
+	fmt.Println(song.Title)
+
+	white := color.New(color.FgWhite).SprintFunc()
+	cyan := color.New(color.FgCyan).SprintfFunc()
+	magenta := color.New(color.FgMagenta).SprintfFunc()
+	yellow := color.New(color.FgYellow).SprintfFunc()
+
+	// Print out preceeding 4 lines, current line and upcoming 4 lines
 	var lastPos modplayer.PlayerPosition
 	for player.IsPlaying() {
 		pos := player.Position()
-		if lastPos.Notes == nil || lastPos.Order != pos.Order || lastPos.Row != pos.Row {
-			fmt.Printf("%02X %02X|", pos.Order, pos.Row)
-			for i, n := range pos.Notes {
-				if i < 4 {
-					fmt.Print(n.String())
-					if i < 3 {
+
+		if lastPos.Notes != nil && lastPos.Order == pos.Order && lastPos.Row == pos.Row {
+			continue
+		}
+
+		for i := -4; i <= 4; i++ {
+			nd := player.NoteDataFor(pos.Order, pos.Row+i)
+			if nd == nil {
+				fmt.Println()
+				continue
+			}
+
+			// If this is the currently playing row then highlight it
+			if i == 0 {
+				fmt.Print(">>> ")
+			} else {
+				fmt.Print("    ")
+			}
+
+			// Print out the first 4 channels of
+			for ni, n := range nd {
+				if ni < 4 {
+					fmt.Print(white(n.Note), " ", cyan("%2X", n.Instrument), " ", magenta("%X", n.Effect), yellow("%02X", n.Param))
+					if ni < 3 {
 						fmt.Print("|")
 					}
-				} else if i == 4 {
+				} else if ni == 4 {
 					fmt.Print(" ...")
+					break
 				}
 			}
+			if i == 0 {
+				fmt.Print(" <<<")
+			}
 			fmt.Println()
-			lastPos = pos
 		}
+		fmt.Print(escape + "9F") // move cursor to beginning of line 9 above
 	}
+
+	// Show the cursor
+	fmt.Print(showCursor)
 }

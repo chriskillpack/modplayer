@@ -51,8 +51,8 @@ type Player struct {
 	// These next fields track player position in the song
 	tickSamplePos int // the number of samples in the tick
 	tick          int // decrementing counter for number of ticks per row
-	rowCounter    int // which row in the order
-	ordIdx        int // current order of the song
+	row           int // which row in the order
+	order         int // current order of the song
 	playing       bool
 
 	Mute uint // bitmask of muted channels, channel 1 in LSB
@@ -68,6 +68,7 @@ type ChannelNoteData struct {
 	Param      int
 }
 
+// String returns a formatted string of the note data
 func (c *ChannelNoteData) String() string {
 	return fmt.Sprintf("%s %2X %X%02X", c.Note, c.Instrument, c.Effect, c.Param)
 }
@@ -244,14 +245,14 @@ func (p *Player) IsPlaying() bool {
 
 // Position returns the current position of the player in the song
 func (p *Player) Position() PlayerPosition {
-	rc := p.rowCounter
+	rc := p.row
 	if rc < 0 {
 		rc = 0
 	}
-	pos := PlayerPosition{Order: p.ordIdx, Pattern: int(p.Song.Orders[p.ordIdx]), Row: rc}
+	pos := PlayerPosition{Order: p.order, Pattern: int(p.Song.Orders[p.order]), Row: rc}
 	pos.Notes = make([]ChannelNoteData, p.Channels)
 
-	pattern := int(p.Song.Orders[p.ordIdx])
+	pattern := int(p.Song.Orders[p.order])
 	rowDataIdx := p.rowDataIndex()
 
 	for i := 0; i < p.Channels; i++ {
@@ -270,25 +271,57 @@ func (p *Player) Position() PlayerPosition {
 	return pos
 }
 
-// SetOrder sets the position in the song to play from, also resetting play
-// position to the first row. If the position is off the end of the song then
-// it will be set back to the beginning of the final order. No attempt is made
-// to reset the player internals.
-func (p *Player) SetOrder(order uint) {
-	if int(order) >= len(p.Orders) {
-		p.ordIdx = len(p.Orders) - 1
-	} else {
-		p.ordIdx = int(order)
+// SeekTo sets the player's current position. If the position is off the end of
+// the song then it will be set back to the beginning of the final order. No
+// attempt is made to reset the player internals.
+func (p *Player) SeekTo(order, row int) {
+	if order < 0 {
+		order = 0
+	} else if order >= len(p.Orders) {
+		order = len(p.Orders) - 1
 	}
-	p.rowCounter = 0
+	p.order = order
+
+	if row < 0 {
+		row = 0
+	} else if row >= 64 {
+		row = 63
+	}
+	p.row = row
+}
+
+// NoteDataFor returns the note data for a specific order and row, or nil if
+// the requested position is invalid.
+func (p *Player) NoteDataFor(order, row int) []ChannelNoteData {
+	if order < 0 || row < 0 || order >= len(p.Orders) || row >= 64 {
+		return nil
+	}
+	nd := make([]ChannelNoteData, p.Channels)
+
+	pattern := p.Orders[order]
+	rowDataIdx := row * p.Song.Channels * bytesPerChannel
+	for i := 0; i < p.Channels; i++ {
+		sampNum, period, effect, param := decodeNote(
+			p.Song.Patterns[pattern][rowDataIdx : rowDataIdx+bytesPerChannel])
+
+		note := &nd[i]
+		note.Note = noteStrFromPeriod(period)
+		note.Instrument = sampNum
+		note.Effect = int(effect)
+		note.Param = int(param)
+
+		rowDataIdx += bytesPerChannel
+	}
+
+	return nd
 }
 
 func (p *Player) reset() {
 	p.Stop()
 	p.setTempo(125)
 	p.Speed = 6
-	p.ordIdx = 0
-	p.rowCounter = 0
+	p.order = 0
+	p.row = 0
 
 	for i := 0; i < p.Song.Channels; i++ {
 		channel := &p.channels[i]
@@ -380,7 +413,7 @@ func (p *Player) sequenceTick() bool {
 	if p.tick <= 0 {
 		p.tick = p.Speed
 
-		pattern := int(p.Song.Orders[p.ordIdx])
+		pattern := int(p.Song.Orders[p.order])
 		rowDataIdx := p.rowDataIndex()
 
 		for i := 0; i < p.Song.Channels; i++ {
@@ -459,11 +492,11 @@ func (p *Player) sequenceTick() bool {
 			case effectSetVolume:
 				channel.volume = int(param)
 			case effectJumpToPattern:
-				p.ordIdx = int(param)
-				if p.ordIdx >= len(p.Orders) {
-					p.ordIdx = len(p.Orders) - 1
+				p.order = int(param)
+				if p.order >= len(p.Orders) {
+					p.order = len(p.Orders) - 1
 				}
-				p.rowCounter = -1
+				p.row = -1
 			case effectPatternBrk:
 				// This code can race, we subtract 1 to offset the row counter
 				// increment after effect processing. If the player position is
@@ -471,10 +504,10 @@ func (p *Player) sequenceTick() bool {
 				// incrementing the row counter below then an invalid row will
 				// be used. Other code that uses the row clamps to 0 but it
 				// would be ideal to find a way to eliminate the race.
-				p.ordIdx++
-				p.rowCounter = int((param>>4)*10+param&0xF) - 1
-				if p.rowCounter >= 64 {
-					p.rowCounter = -1
+				p.order++
+				p.row = int((param>>4)*10+param&0xF) - 1
+				if p.row >= 64 {
+					p.row = -1
 				}
 			case effectExtended:
 				switch param >> 4 {
@@ -501,12 +534,12 @@ func (p *Player) sequenceTick() bool {
 			rowDataIdx += 4
 		}
 
-		p.rowCounter++
-		if p.rowCounter >= 64 {
-			p.rowCounter = 0
-			p.ordIdx++
+		p.row++
+		if p.row >= 64 {
+			p.row = 0
+			p.order++
 
-			if p.ordIdx >= len(p.Song.Orders) {
+			if p.order >= len(p.Song.Orders) {
 				// End of the song reached, reset player state and stop
 				finished = true
 				p.reset()
@@ -532,8 +565,8 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 		o[i] = 0
 	}
 
-	for chanIdx := range p.channels {
-		channel := &p.channels[chanIdx]
+	for ci := range p.channels {
+		channel := &p.channels[ci]
 
 		if channel.sample == -1 {
 			continue
@@ -554,7 +587,7 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 		}
 
 		// If the volume is off or the channel muted
-		if vol <= 0 || (p.Mute&(1<<chanIdx)) != 0 {
+		if vol <= 0 || (p.Mute&(1<<ci)) != 0 {
 			channel.samplePosition = pos + dr*uint(nSamples)
 			continue
 		}
@@ -641,7 +674,7 @@ func (p *Player) GenerateAudio(out []int16) int {
 // used resulting in invalid offsets. This function protects against that
 // issue but it would be ideal to eliminate the race condition.
 func (p *Player) rowDataIndex() int {
-	rc := p.rowCounter
+	rc := p.row
 	if rc < 0 {
 		rc = 0
 	}

@@ -15,9 +15,10 @@ import (
 )
 
 var (
-	flagWAVOut = flag.String("wav", "", "output location for WAV file")
-	flagHz     = flag.Int("hz", 44100, "output hz")
-	flagBoost  = flag.Uint("boost", 1, "volume boost, an integer between 1 and 4")
+	flagWAVOut   = flag.String("wav", "", "output location for WAV file")
+	flagHz       = flag.Int("hz", 44100, "output hz")
+	flagBoost    = flag.Uint("boost", 1, "volume boost, an integer between 1 and 4")
+	flagStartOrd = flag.Int("start", 0, "starting order in the MOD, clamped to song max")
 )
 
 func main() {
@@ -54,6 +55,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	player.SeekTo(*flagStartOrd, 0)
 
 	wavF, err := os.Create(*flagWAVOut)
 	if err != nil {

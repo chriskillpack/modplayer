@@ -31,6 +31,8 @@ PKG_CONFIG_PATH=$PORTAUDIO CGO_CFLAGS="-I $PORTAUDIO/include" CGO_LDFLAGS="-L $P
 modplay awesome.mod
 ```
 
+![Screenshot of modplay](/docs/modplay.png)
+
 # MOD files
 
 You can find MOD files at [The Mod Archive](https://modarchive.org/) but I included a couple in the `mods` folder that I used to test playback:

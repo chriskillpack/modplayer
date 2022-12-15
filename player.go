@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 const (
@@ -743,7 +744,7 @@ func NewSongFromBytes(songBytes []byte) (*Song, error) {
 	buf := bytes.NewReader(songBytes)
 	y := make([]byte, 20)
 	buf.Read(y)
-	song.Title = string(y)
+	song.Title = strings.TrimRight(string(y), "\x00")
 
 	// Read sample information (sample data is read later)
 	for i := 0; i < 31; i++ {

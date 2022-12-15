@@ -86,14 +86,25 @@ func main() {
 	// Hide the cursor
 	fmt.Print(hideCursor)
 
-	fmt.Println(song.Title)
-
 	white := color.New(color.FgWhite).SprintFunc()
 	cyan := color.New(color.FgCyan).SprintfFunc()
 	magenta := color.New(color.FgMagenta).SprintfFunc()
 	yellow := color.New(color.FgYellow).SprintfFunc()
+	blue := color.New(color.FgHiBlue).SprintFunc()
 
-	// Print out preceeding 4 lines, current line and upcoming 4 lines
+	// Print out some player preceeding 4 rows, current row and upcoming 4 rows
+	// <title> row 1A/3F pat 0A/73 speed 6 bpm 125
+	//
+	//          0 000|     0 C00|     0 000|     0 000
+	//          0 000|     0 000|     0 000|     0 000
+	//     C#5  F 000|G-5 14 000|     0 000|     0 000
+	//          0 000|     0 000|     0 000|     0 000
+	// >>>      0 000|     0 000|     0 000|     0 000 <<<
+	//          0 000|     0 000|     0 000|     0 000
+	//          0 000|G-5 14 C0B|     0 000|     0 000
+	//          0 000|     0 000|     0 000|     0 000
+	//     C#5  F 000|     0 000|     0 000|     0 000
+
 	var lastPos modplayer.PlayerPosition
 	for player.IsPlaying() {
 		pos := player.Position()
@@ -101,6 +112,11 @@ func main() {
 		if lastPos.Notes != nil && lastPos.Order == pos.Order && lastPos.Row == pos.Row {
 			continue
 		}
+
+		if len(song.Title) > 0 {
+			fmt.Print(song.Title + " ")
+		}
+		fmt.Printf("%s %02X/3F %s %02X/%02X %s %d %s %d\n\n", blue("row"), pos.Row, blue("pat"), pos.Order, len(song.Orders), blue("speed"), player.Speed, blue("bpm"), player.Tempo)
 
 		for i := -4; i <= 4; i++ {
 			nd := player.NoteDataFor(pos.Order, pos.Row+i)
@@ -133,7 +149,7 @@ func main() {
 			}
 			fmt.Println()
 		}
-		fmt.Print(escape + "9F") // move cursor to beginning of line 9 above
+		fmt.Print(escape + "11F") // move cursor to beginning of line 9 above
 	}
 
 	// Show the cursor

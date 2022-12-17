@@ -105,21 +105,40 @@ func main() {
 	//          0 000|     0 000|     0 000|     0 000
 	//     C#5  F 000|     0 000|     0 000|     0 000
 
-	var lastPos modplayer.PlayerPosition
+	var lastState modplayer.PlayerState
 	for player.IsPlaying() {
-		pos := player.Position()
+		state := player.State()
 
-		if lastPos.Notes != nil && lastPos.Order == pos.Order && lastPos.Row == pos.Row {
+		if lastState.Notes != nil && lastState.Order == state.Order && lastState.Row == state.Row {
 			continue
 		}
 
 		if len(song.Title) > 0 {
 			fmt.Print(song.Title + " ")
 		}
-		fmt.Printf("%s %02X/3F %s %02X/%02X %s %d %s %d\n\n", blue("row"), pos.Row, blue("pat"), pos.Order, len(song.Orders), blue("speed"), player.Speed, blue("bpm"), player.Tempo)
+		fmt.Printf("%s %02X/3F %s %02X/%02X %s %d %s %d\n", blue("row"), state.Row, blue("pat"), state.Order, len(song.Orders), blue("speed"), player.Speed, blue("bpm"), player.Tempo)
+
+		// Print out some channel info
+		ncl := len(state.Channels) / 2
+		for i, ch := range state.Channels {
+			outs := fmt.Sprintf("%2d: ", i+1)
+
+			si := ch.Instrument
+			if si != -1 {
+				outs += song.Samples[si].Name
+			}
+			if len(outs) < 26 {
+				outs = fmt.Sprintf("%-26s", outs)
+			}
+			fmt.Print(outs)
+			if i&1 == 1 {
+				fmt.Println()
+			}
+		}
+		fmt.Println()
 
 		for i := -4; i <= 4; i++ {
-			nd := player.NoteDataFor(pos.Order, pos.Row+i)
+			nd := player.NoteDataFor(state.Order, state.Row+i)
 			if nd == nil {
 				fmt.Println()
 				continue
@@ -149,7 +168,7 @@ func main() {
 			}
 			fmt.Println()
 		}
-		fmt.Print(escape + "11F") // move cursor to beginning of line 9 above
+		fmt.Printf(escape+"%dF", 11+ncl) // move cursor to beginning of line 9 above
 	}
 
 	// Show the cursor

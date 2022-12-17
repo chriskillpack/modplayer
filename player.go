@@ -74,13 +74,20 @@ func (c *ChannelNoteData) String() string {
 	return fmt.Sprintf("%s %2X %X%02X", c.Note, c.Instrument, c.Effect, c.Param)
 }
 
-// PlayerPosition holds the current position in the song
-type PlayerPosition struct {
+// ChannelState holds the current state of a channel
+type ChannelState struct {
+	Instrument         int // -1 if no instrument playing
+	TrigOrder, TrigRow int // The order and row the instrument was triggered (played)
+}
+
+// PlayerState holds player position and channel state
+type PlayerState struct {
 	Order   int
 	Pattern int
 	Row     int
 
-	Notes []ChannelNoteData
+	Notes    []ChannelNoteData
+	Channels []ChannelState
 }
 
 type channel struct {
@@ -107,6 +114,9 @@ type channel struct {
 	effect        byte
 	param         byte
 	effectCounter int
+
+	trigOrder, trigRow int // The order and row the channel was triggered on
+	// This is here only for State().
 }
 
 // Song represents a MOD file
@@ -244,23 +254,24 @@ func (p *Player) IsPlaying() bool {
 	return p.playing
 }
 
-// Position returns the current position of the player in the song
-func (p *Player) Position() PlayerPosition {
+// State returns the current state of the player (song position, channel state, etc.)
+func (p *Player) State() PlayerState {
 	rc := p.row
 	if rc < 0 {
 		rc = 0
 	}
-	pos := PlayerPosition{Order: p.order, Pattern: int(p.Song.Orders[p.order]), Row: rc}
-	pos.Notes = make([]ChannelNoteData, p.Channels)
+	state := PlayerState{Order: p.order, Pattern: int(p.Song.Orders[p.order]), Row: rc}
+	state.Notes = make([]ChannelNoteData, p.Channels)
+	state.Channels = make([]ChannelState, p.Channels)
 
 	pattern := int(p.Song.Orders[p.order])
 	rowDataIdx := p.rowDataIndex()
 
-	for i := 0; i < p.Channels; i++ {
+	for i := range state.Notes {
 		sampNum, period, effect, param := decodeNote(
 			p.Song.Patterns[pattern][rowDataIdx : rowDataIdx+bytesPerChannel])
 
-		note := &pos.Notes[i]
+		note := &state.Notes[i]
 		note.Note = noteStrFromPeriod(period)
 		note.Instrument = sampNum
 		note.Effect = int(effect)
@@ -269,7 +280,18 @@ func (p *Player) Position() PlayerPosition {
 		rowDataIdx += bytesPerChannel
 	}
 
-	return pos
+	for i := range p.channels {
+		state.Channels[i].Instrument = p.channels[i].sample
+		if p.channels[i].sample != -1 {
+			state.Channels[i].TrigOrder = p.channels[i].trigOrder
+			state.Channels[i].TrigRow = p.channels[i].trigRow
+		} else {
+			state.Channels[i].TrigOrder = -1
+			state.Channels[i].TrigRow = -1
+		}
+	}
+
+	return state
 }
 
 // SeekTo sets the player's current position. If the position is off the end of
@@ -454,6 +476,8 @@ func (p *Player) sequenceTick() bool {
 					channel.sample = channel.sampleToPlay
 					channel.tremoloPhase = 0
 					channel.vibratoPhase = 0
+					channel.trigOrder = p.order
+					channel.trigRow = p.row
 				}
 			}
 			channel.effect = effect
@@ -720,7 +744,7 @@ func readSampleInfo(r *bytes.Reader) (*Sample, error) {
 	}
 
 	smp := &Sample{
-		Name:      string(data.Name[:]),
+		Name:      strings.TrimRight(string(data.Name[:]), "\x00"),
 		Length:    int(data.Length) * 2,
 		FineTune:  int(data.FineTune&7) - int(data.FineTune&8) + 8,
 		Volume:    int(data.Volume),

@@ -360,9 +360,9 @@ func (p *Player) reset() {
 
 		switch i & 3 {
 		case 0, 3:
-			channel.pan = 0
+			channel.pan = 0 // left
 		case 1, 2:
-			channel.pan = 127
+			channel.pan = 127 // right
 		}
 	}
 }
@@ -620,6 +620,13 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 
 		lvol := ((127 - channel.pan) * vol) >> 7
 		rvol := (channel.pan * vol) >> 7
+		if lvol == 0 && rvol == 0 {
+			// lvol and rvol can end up 0 for very quiet volumes due to
+			// precision issues, so skip the mix loop.
+			// TODO: Eliminate the two separate volume checks
+			channel.samplePosition = pos + dr*uint(nSamples)
+			continue
+		}
 
 		sampEnd := uint(sample.Length << 16)
 
@@ -634,16 +641,40 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 				epos = sampEnd
 			}
 
-			// TODO: Full pan left or right optimization in mixer
-			for pos < epos {
-				// WARNING: no clamping when mixing, this seems to be the case in other players I looked at.
-				// I think the expectation is that the musician not play samples too loudly.
-				sd := int(sample.Data[pos>>16])
-				out[cur+0] += int16(sd * lvol)
-				out[cur+1] += int16(sd * rvol)
+			// lvol rvol | case
+			//   0    0  |  skip, nothing to mix in. already handled above
+			//  127   0  |  mono mix left side
+			//   0   127 |  mono mix right side
+			//   N    N  |  stereo mix
+			if lvol != 0 && rvol == 0 || lvol == 0 && rvol != 0 {
+				if lvol != 0 {
+					vol = lvol
+				} else {
+					vol = rvol
+					cur++
+				}
+				for pos < epos {
+					sd := int(sample.Data[pos>>16])
+					out[cur] += int16(sd * vol)
 
-				pos += dr
-				cur += 2
+					pos += dr
+					cur += 2
+				}
+				// Now snap cursor to the correct position
+				if rvol != 0 {
+					cur++
+				}
+			} else {
+				for pos < epos {
+					// WARNING: no clamping when mixing, this seems to be the case in other players I looked at.
+					// I think the expectation is that the musician not play samples too loudly.
+					sd := int(sample.Data[pos>>16])
+					out[cur+0] += int16(sd * lvol)
+					out[cur+1] += int16(sd * rvol)
+
+					pos += dr
+					cur += 2
+				}
 			}
 			if pos >= sampEnd {
 				if sample.LoopLen > 0 {

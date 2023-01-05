@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/signal"
@@ -35,7 +34,7 @@ func main() {
 		log.Fatal("Missing MOD filename")
 	}
 
-	modF, err := ioutil.ReadFile(flag.Arg(0))
+	modF, err := os.ReadFile(flag.Arg(0))
 	if err != nil {
 		log.Fatal(err)
 	}

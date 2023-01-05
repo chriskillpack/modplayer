@@ -5,7 +5,6 @@ package main
 
 import (
 	"flag"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -31,7 +30,7 @@ func main() {
 	}
 
 	modName := flag.Arg(0)
-	modF, err := ioutil.ReadFile(modName)
+	modF, err := os.ReadFile(modName)
 	if err != nil {
 		log.Fatal(err)
 	}

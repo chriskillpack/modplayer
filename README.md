@@ -67,4 +67,3 @@ sudo cp $PORTAUDIO/lib/.libs/libportaudio.2.dylib /usr/local/lib
 
 - S3M support
 - Fix clicking on looping samples (e.g. in Dope)
-- Optimizations in mixer: full-pan fast path

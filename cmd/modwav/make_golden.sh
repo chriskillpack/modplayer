@@ -1,12 +1,27 @@
 #!/usr/bin/env bash
+# Generates golden WAV files from mods, useful for testing
+# By default will exit if working tree is dirty, use -d to skip this check
+
 set -o pipefail
 set -x
 
 MODS=("space_debris" "dope" "believe")
 OUTDIR="golden"
+skipDirty=false
+
+while getopts d flag
+do
+  case "${flag}" in
+    d) skipDirty=true;;
+  esac
+done
 
 # Check if the working tree is dirty
-if ! $( git diff --quiet );
+# dirtyTree will be either 0 or 1. The single line command below works because
+# the command prints nothing to stdout.
+dirtyTree=$( git diff --quiet )$?
+
+if [ $skipDirty == false ] && [ $dirtyTree -eq 1 ];
 then
   echo "working tree is dirty, please stash changes"
   exit 1

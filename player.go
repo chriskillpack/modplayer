@@ -662,7 +662,7 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 				}
 				// Now snap cursor to the correct position
 				if rvol != 0 {
-					cur++
+					cur--
 				}
 			} else {
 				for pos < epos {
@@ -877,4 +877,24 @@ func NewSongFromBytes(songBytes []byte) (*Song, error) {
 	}
 
 	return song, nil
+}
+
+// Useful function to dump contents of the audio buffer
+// tcur = the absolute offset (in samples) in the song of the output buffer
+// ns = number of samples to print
+func dumpChannel(tcur, ns int, out []int16) {
+	fmt.Printf("%d: ", tcur)
+	for i := 0; i < ns; i++ {
+		a := uint16(out[i*2+0])
+		a = (a&0xFF)<<8 | (a >> 8)
+		b := uint16(out[i*2+1])
+		b = (b&0xFF)<<8 | (b >> 8)
+		fmt.Printf("%04X%04X", a, b)
+		if i == ns-1 || ((i > 0) && (i%8) == 7) {
+			fmt.Println()
+			if i != ns-1 {
+				fmt.Printf("%d: ", tcur+i+1)
+			}
+		}
+	}
 }

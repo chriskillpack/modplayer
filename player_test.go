@@ -38,7 +38,7 @@ func BenchmarkMixChannels(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	player, err := NewPlayer(song, 44100, 1)
+	player, err := NewPlayer(song, 44100)
 	if err != nil {
 		b.Fatal(err)
 	}

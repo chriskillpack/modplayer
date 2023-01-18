@@ -3,7 +3,6 @@ package modplayer
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"strings"
 )
@@ -216,15 +215,12 @@ func (c *channel) volumeSlide() {
 
 // NewPlayer returns a new Player for the given song. The Player is already
 // started.
-func NewPlayer(song *Song, samplingFrequency, volBoost uint) (*Player, error) {
+func NewPlayer(song *Song, samplingFrequency uint) (*Player, error) {
 	player := &Player{
 		samplingFrequency: samplingFrequency,
-		volBoost:          volBoost,
+		volBoost:          1,
 		Song:              song,
 		Speed:             6,
-	}
-	if volBoost < 1 || volBoost > 4 {
-		return nil, errors.New("invalid volume boost")
 	}
 
 	player.channels = make([]channel, song.Channels)
@@ -311,6 +307,17 @@ func (p *Player) SeekTo(order, row int) {
 		row = 63
 	}
 	p.row = row
+}
+
+// SetVolumeBoost sets the volume boost factor to a value between 1 (no boost,
+// default and 4 (4x volume).
+func (p *Player) SetVolumeBoost(boost int) error {
+	if boost < 1 || boost > 4 {
+		return fmt.Errorf("invalid volume boost")
+	}
+	p.volBoost = uint(boost)
+
+	return nil
 }
 
 // NoteDataFor returns the note data for a specific order and row, or nil if

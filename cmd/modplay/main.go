@@ -15,7 +15,7 @@ import (
 
 var (
 	flagHz       = flag.Int("hz", 44100, "output hz")
-	flagBoost    = flag.Uint("boost", 1, "volume boost, an integer between 1 and 4")
+	flagBoost    = flag.Int("boost", 1, "volume boost, an integer between 1 and 4")
 	flagStartOrd = flag.Int("start", 0, "starting order in the MOD, clamped to song max")
 )
 
@@ -44,8 +44,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	player, err := modplayer.NewPlayer(song, uint(*flagHz), *flagBoost)
+	player, err := modplayer.NewPlayer(song, uint(*flagHz))
 	if err != nil {
+		log.Fatal(err)
+	}
+	if err := player.SetVolumeBoost(*flagBoost); err != nil {
 		log.Fatal(err)
 	}
 	player.SeekTo(*flagStartOrd, 0)

@@ -55,6 +55,64 @@ func (c *Comb) GetAudio(out []int16) int {
 	return n
 }
 
+// CombAdd is a Comb filter can be fed audio data incrementally
+// It does not discard used samples and has no upper bound on memory used
+type CombAdd struct {
+	Comb
+	readPos  int
+	writePos int
+	decay    float32
+}
+
+// initialSize is in sample pairs
+func newCombAdd(initialSize int, decay float32, delayMs, sampleRate int) *CombAdd {
+	c := &CombAdd{
+		Comb: Comb{
+			delayOffset: (delayMs * sampleRate) / 1000,
+			audio:       make([]int16, 0, initialSize*2),
+		},
+		decay: decay,
+	}
+
+	return c
+}
+
+// InputSamples feeds the CombAdd filter with new sample data. Once enough
+// samples have been accumulated the filter will start applying reverb to audio
+// data. The exact number of samples is determined by delay and sample rate.
+// InputSamples returns the number of samples required before reverb can be
+// applied. The functions takes a copy of the provided audio data.
+func (c *CombAdd) InputSamples(in []int16) int {
+	c.audio = append(c.audio, in...)
+	if len(c.audio) > c.delayOffset*2 {
+		ns := len(c.audio) - (c.delayOffset*2 + c.writePos)
+		for i := 0; i < ns; i++ {
+			c.audio[i+c.delayOffset*2+c.writePos] += int16(float32(c.audio[i+c.writePos]) * c.decay)
+		}
+		c.writePos += ns
+	}
+	rem := c.delayOffset*2 - len(c.audio)
+	if rem < 0 {
+		rem = 0
+	}
+	return rem
+}
+
+// GetAudio puts processed audio data into the out slice. It returns the number
+// of samples put into out.
+func (c *CombAdd) GetAudio(out []int16) int {
+	wanted := len(out)
+	have := len(c.audio) - c.readPos
+	if wanted > have {
+		wanted = have
+	}
+	if wanted > 0 {
+		copy(out, c.audio[c.readPos:c.readPos+wanted])
+		c.readPos += wanted
+	}
+	return wanted
+}
+
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("modplay: ")
@@ -90,16 +148,13 @@ func main() {
 		}
 	}()
 
-	// Generate a large buffer of audio
-	ns := 1000 * 1024
-	audio := make([]int16, ns*2)
-	player.GenerateAudio(audio)
-	c := newComb(audio, 0.2, 75, *flagHz)
+	c := newCombAdd(100*1024, 0.2, 150, *flagHz)
 
 	var stream *portaudio.Stream
 	streamCB := func(out []int16) {
 		x := make([]int16, len(out))
 		player.GenerateAudio(x)
+		c.InputSamples(x)
 		n := c.GetAudio(out)
 		if n == 0 {
 			player.Stop()

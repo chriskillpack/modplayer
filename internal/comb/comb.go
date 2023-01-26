@@ -91,3 +91,84 @@ func (c *CombAdd) GetAudio(out []int16) int {
 	}
 	return wanted
 }
+
+// CombFixed is a Comb filter than uses a fixed size of backing memory
+type CombFixed struct {
+	Comb
+	readPos, writePos int
+	n                 int
+	bufferSize        int
+}
+
+// NewCombFixed creates a new Comb filter. The internal buffer is sized
+// appropriately to support the desired reverb delay but it can be increased
+// using the addSize parameter.
+func NewCombFixed(addSize int, decay float32, delayMs, sampleRate int) *CombFixed {
+	delayOffset := (delayMs * sampleRate) / 1000
+	c := &CombFixed{
+		Comb: Comb{
+			audio:       make([]int16, (delayOffset+addSize)*2),
+			delayOffset: delayOffset,
+		},
+		bufferSize: (delayOffset + addSize) * 2,
+	}
+	return c
+}
+
+func (c *CombFixed) InputSamples(in []int16) int {
+	// How much can the buffer take?
+	free := c.bufferSize - c.n
+	n := len(in)
+	if n > free {
+		n = free
+	}
+	// If the buffer is full then stop
+	if n == 0 {
+		return 0
+	}
+
+	// Would adding this data exceed the end of the buffer?
+	if c.writePos+n >= c.bufferSize {
+		// Yes, do it in two parts (n1 to end of buffer, n2 the remainder)
+		n1 := c.bufferSize - c.writePos
+		n2 := n - n1
+		copy(c.audio[c.writePos:c.writePos+n1], in[:n1])
+		copy(c.audio[:n2], in[n1:n1+n2])
+		c.writePos = n2
+	} else {
+		copy(c.audio[c.writePos:c.writePos+n], in[:n])
+		c.writePos += n
+	}
+	c.n += n
+	return n
+}
+
+func (c *CombFixed) GetAudio(out []int16) int {
+	n := len(out)
+	if n > c.n {
+		n = c.n
+	}
+
+	// If the buffer is empty then stop
+	if n == 0 {
+		return 0
+	}
+
+	if c.readPos+n > c.bufferSize {
+		n1 := c.bufferSize - c.readPos
+		n2 := n - n1
+		copy(out[:n1], c.audio[c.readPos:c.readPos+n1])
+		copy(out[n1:n], c.audio[:n2])
+
+		// TODO: Apply the reverb!
+		c.readPos = n2
+	} else {
+		copy(out[:n], c.audio[c.readPos:c.readPos+n])
+
+		// TODO: Apply the reverb!
+		c.readPos += n
+	}
+	c.n -= n
+
+	return n
+}

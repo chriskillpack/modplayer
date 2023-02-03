@@ -530,13 +530,20 @@ func (p *Player) sequenceTick() bool {
 				}
 				p.row = -1
 			case effectPatternBrk:
+				// Advance to the next pattern in the order unless we are on the
+				// last pattern, in which case we stay on this pattern. This
+				// behavior matches MilkyTracker.
+				p.order++
+				if p.order == len(p.Orders) {
+					p.order = len(p.Orders) - 1
+				}
+
 				// This code can race, we subtract 1 to offset the row counter
 				// increment after effect processing. If the player position is
 				// read (e.g. generating audio) after processing this effect and
 				// incrementing the row counter below then an invalid row will
 				// be used. Other code that uses the row clamps to 0 but it
 				// would be ideal to find a way to eliminate the race.
-				p.order++
 				p.row = int((param>>4)*10+param&0xF) - 1
 				if p.row >= 64 {
 					p.row = -1

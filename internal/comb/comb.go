@@ -92,12 +92,19 @@ func (c *CombAdd) GetAudio(out []int16) int {
 	return wanted
 }
 
+// How much unread data remains in the buffer. This does not account for any
+// unprocessed reverb.
+func (c *CombAdd) N() int {
+	return len(c.audio) - c.readPos
+}
+
 // CombFixed is a Comb filter than uses a fixed size of backing memory
 type CombFixed struct {
 	Comb
 	readPos, writePos int
 	n                 int
 	bufferSize        int
+	decay             float32
 }
 
 // NewCombFixed creates a new Comb filter. The internal buffer is sized
@@ -111,11 +118,14 @@ func NewCombFixed(addSize int, decay float32, delayMs, sampleRate int) *CombFixe
 			delayOffset: delayOffset,
 		},
 		bufferSize: (delayOffset + addSize) * 2,
+		decay:      decay,
 	}
 	return c
 }
 
 func (c *CombFixed) InputSamples(in []int16) int {
+	// fmt.Printf("IS s:%d n:%d r:%d w:%d l:%d", c.bufferSize, c.n, c.readPos, c.writePos, len(in))
+
 	// How much can the buffer take?
 	free := c.bufferSize - c.n
 	n := len(in)
@@ -134,16 +144,21 @@ func (c *CombFixed) InputSamples(in []int16) int {
 		n2 := n - n1
 		copy(c.audio[c.writePos:c.writePos+n1], in[:n1])
 		copy(c.audio[:n2], in[n1:n1+n2])
+		// fmt.Printf(" split %d %d", n1, n2)
 		c.writePos = n2
 	} else {
+		// fmt.Printf(" single")
 		copy(c.audio[c.writePos:c.writePos+n], in[:n])
 		c.writePos += n
 	}
 	c.n += n
+	// fmt.Println()
 	return n
 }
 
 func (c *CombFixed) GetAudio(out []int16) int {
+	// fmt.Printf("GA s:%d n:%d r:%d w:%d l:%d", c.bufferSize, c.n, c.readPos, c.writePos, len(out))
+
 	n := len(out)
 	if n > c.n {
 		n = c.n
@@ -159,16 +174,25 @@ func (c *CombFixed) GetAudio(out []int16) int {
 		n2 := n - n1
 		copy(out[:n1], c.audio[c.readPos:c.readPos+n1])
 		copy(out[n1:n], c.audio[:n2])
+		// fmt.Printf(" split %d %d", n1, n2)
 
 		// TODO: Apply the reverb!
 		c.readPos = n2
 	} else {
 		copy(out[:n], c.audio[c.readPos:c.readPos+n])
 
+		// fmt.Printf(" single")
 		// TODO: Apply the reverb!
 		c.readPos += n
 	}
 	c.n -= n
+	// fmt.Println()
 
 	return n
+}
+
+// How much unread data remains in the buffer. This does not account for any
+// unprocessed reverb.
+func (c *CombFixed) N() int {
+	return c.n
 }

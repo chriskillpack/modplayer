@@ -5,6 +5,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -23,6 +24,15 @@ var (
 )
 
 func main() {
+	// cf := comb.NewCombFixed(0, 0.1, 10, *flagHz)
+	// bloop := make([]int16, 2048)
+	// cf.InputSamples(bloop[:30])
+	// cf.InputSamples(bloop[:500])
+	// cf.GetAudio(bloop[:530])
+	// cf.GetAudio(bloop[:30])
+	// cf.InputSamples(bloop[:700])
+	// cf.GetAudio(bloop[:1000])
+
 	log.SetFlags(0)
 	log.SetPrefix("modwav: ")
 	flag.Parse()
@@ -81,14 +91,17 @@ func main() {
 		scratch = make([]int16, 10*1024)
 	}
 	audioOut := make([]int16, 2048)
+	cf2 := comb.NewCombFixed(1024, 0.2, 3500, *flagHz)
 
 	for player.IsPlaying() {
 		var n int
 		if !*flagNoReverb {
 			sc := scratch[:len(audioOut)]
-			player.GenerateAudio(sc)
-			c.InputSamples(sc)
-			n = c.GetAudio(audioOut)
+			n = player.GenerateAudio(sc) * 2
+			c.InputSamples(sc[:n])
+			cf2.InputSamples(sc[:n])
+			n = cf2.GetAudio(audioOut)
+			// n = c.GetAudio(audioOut)
 		} else {
 			n = player.GenerateAudio(audioOut) * 2
 		}
@@ -99,4 +112,5 @@ func main() {
 	}
 
 	player.Stop()
+	fmt.Printf("Remaining %d\n", cf2.N())
 }

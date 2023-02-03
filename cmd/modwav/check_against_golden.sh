@@ -30,7 +30,7 @@ do
   echo "Checking $mod.mod"
 
   # Generate the candidate WAV file
-  go run . -wav $WAV_OUT $MOD_IN > /dev/null
+  go run . -noreverb -wav $WAV_OUT $MOD_IN > /dev/null
 
   retVal=$?
   if [ $retVal -ne 0 ]; then

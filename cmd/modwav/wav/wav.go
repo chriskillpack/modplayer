@@ -10,6 +10,7 @@ package wav
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 )
 
@@ -76,7 +77,8 @@ func (w *Writer) WriteFrame(samples []int16) error {
 // This allows the writer to update placeholders values with the correct
 // values.
 func (w *Writer) Finish() (int64, error) {
-	wlen, err := w.WS.Seek(0, io.SeekCurrent)
+	wlen, _ := w.WS.Seek(0, io.SeekCurrent)
+	fmt.Printf("!!! Finish is writing wlen %d bytes\n", wlen)
 
 	offset, err := w.WS.Seek(4, io.SeekStart)
 	if offset != 4 || err != nil {

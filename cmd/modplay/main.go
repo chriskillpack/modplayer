@@ -213,5 +213,4 @@ func main() {
 
 	// Show the cursor
 	fmt.Print(showCursor)
-	fmt.Printf("\n\nLeft %d\n", c.N())
 }

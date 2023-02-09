@@ -92,17 +92,13 @@ func (c *CombAdd) GetAudio(out []int16) int {
 	return wanted
 }
 
-// How much unread data remains in the buffer. This does not account for any
-// unprocessed reverb.
-func (c *CombAdd) N() int {
-	return len(c.audio) - c.readPos
-}
-
 // CombFixed is a Comb filter than uses a fixed size of backing memory
 type CombFixed struct {
 	Comb
 	readPos, writePos int
 	n                 int
+	seen              int // how much has been seen, used for applying delay
+	delayPos          int
 	bufferSize        int
 	decay             float32
 }
@@ -124,8 +120,6 @@ func NewCombFixed(addSize int, decay float32, delayMs, sampleRate int) *CombFixe
 }
 
 func (c *CombFixed) InputSamples(in []int16) int {
-	// fmt.Printf("IS s:%d n:%d r:%d w:%d l:%d", c.bufferSize, c.n, c.readPos, c.writePos, len(in))
-
 	// How much can the buffer take?
 	free := c.bufferSize - c.n
 	n := len(in)
@@ -137,6 +131,8 @@ func (c *CombFixed) InputSamples(in []int16) int {
 		return 0
 	}
 
+	oldWritePos := c.writePos
+
 	// Would adding this data exceed the end of the buffer?
 	if c.writePos+n >= c.bufferSize {
 		// Yes, do it in two parts (n1 to end of buffer, n2 the remainder)
@@ -144,21 +140,60 @@ func (c *CombFixed) InputSamples(in []int16) int {
 		n2 := n - n1
 		copy(c.audio[c.writePos:c.writePos+n1], in[:n1])
 		copy(c.audio[:n2], in[n1:n1+n2])
-		// fmt.Printf(" split %d %d", n1, n2)
 		c.writePos = n2
 	} else {
-		// fmt.Printf(" single")
 		copy(c.audio[c.writePos:c.writePos+n], in[:n])
 		c.writePos += n
 	}
 	c.n += n
-	// fmt.Println()
+	if c.seen+n >= c.delayOffset {
+		if c.seen < c.delayOffset {
+			// The written data partially straddles the delay offset, find out
+			// where the offset falls in the written data
+			off := c.delayOffset - c.seen
+
+			// How much data needs to be processed?
+			ns := (c.seen + n) - c.delayOffset
+
+			// Apply the reverb
+			c.applyReverb(ns, off)
+		} else if oldWritePos+n < c.bufferSize {
+			// Block fits entirely
+			c.applyReverb(n, oldWritePos)
+		} else {
+			// Block straddles the buffer, split into two sections
+			n1 := c.bufferSize - oldWritePos
+			n2 := n - n1
+			c.applyReverb(n1, oldWritePos)
+			c.applyReverb(n2, 0)
+		}
+	}
+	c.seen += n
 	return n
 }
 
-func (c *CombFixed) GetAudio(out []int16) int {
-	// fmt.Printf("GA s:%d n:%d r:%d w:%d l:%d", c.bufferSize, c.n, c.readPos, c.writePos, len(out))
+func (c *CombFixed) applyReverb(ns, off int) {
+	// Handle if the requested block wraps around the end of the buffer
+	if c.delayPos+ns >= c.bufferSize {
+		n1 := c.bufferSize - c.delayPos
+		n2 := ns - n1
+		for i := 0; i < n1; i++ {
+			c.audio[i+off] += int16(float32(c.audio[i+c.delayPos]) * c.decay)
+		}
 
+		// First part done, setup second part
+		off = 0
+		ns = n2
+		c.delayPos = 0
+	}
+
+	for i := 0; i < ns; i++ {
+		c.audio[i+off] += int16(float32(c.audio[i+c.delayPos]) * c.decay)
+	}
+	c.delayPos += ns
+}
+
+func (c *CombFixed) GetAudio(out []int16) int {
 	n := len(out)
 	if n > c.n {
 		n = c.n
@@ -174,25 +209,14 @@ func (c *CombFixed) GetAudio(out []int16) int {
 		n2 := n - n1
 		copy(out[:n1], c.audio[c.readPos:c.readPos+n1])
 		copy(out[n1:n], c.audio[:n2])
-		// fmt.Printf(" split %d %d", n1, n2)
 
-		// TODO: Apply the reverb!
 		c.readPos = n2
 	} else {
 		copy(out[:n], c.audio[c.readPos:c.readPos+n])
 
-		// fmt.Printf(" single")
-		// TODO: Apply the reverb!
 		c.readPos += n
 	}
 	c.n -= n
-	// fmt.Println()
 
 	return n
-}
-
-// How much unread data remains in the buffer. This does not account for any
-// unprocessed reverb.
-func (c *CombFixed) N() int {
-	return c.n
 }

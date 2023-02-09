@@ -10,7 +10,6 @@ package wav
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 )
 
@@ -18,7 +17,7 @@ const wavTypePCM = 1
 
 // ErrInvalidChunkHeaderLength means that the provided letter chunk
 // name was not 4 characters.
-var ErrInvalidChunkHeaderLength = errors.New("Chunk header name is not 4 characters")
+var ErrInvalidChunkHeaderLength = errors.New("chunk header name is not 4 characters")
 
 // A Writer writes a WAV file into WS
 type Writer struct {
@@ -78,7 +77,6 @@ func (w *Writer) WriteFrame(samples []int16) error {
 // values.
 func (w *Writer) Finish() (int64, error) {
 	wlen, _ := w.WS.Seek(0, io.SeekCurrent)
-	fmt.Printf("!!! Finish is writing wlen %d bytes\n", wlen)
 
 	offset, err := w.WS.Seek(4, io.SeekStart)
 	if offset != 4 || err != nil {

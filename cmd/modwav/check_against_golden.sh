@@ -14,7 +14,13 @@ then
     exit 1
 fi
 
-TMPDIR=`mktemp -d` || exit 1
+TMPDIR=`mktemp -d`
+
+retVal=$?
+if [ $retVal -ne 0 ]; then
+  echo -e "\nCould not create temporary directory"
+  exit $retVal
+fi
 
 for mod in "${MODS[@]}"
 do
@@ -25,16 +31,20 @@ do
 
   # Generate the candidate WAV file
   go run . -wav $WAV_OUT $MOD_IN > /dev/null
-  if [ ! $? -eq 0 ];
-  then
-    echo "Failed to generate $WAV_OUT"
+
+  retVal=$?
+  if [ $retVal -ne 0 ]; then
+    echo -e "\nFailed to generate $WAV_OUT"
   fi
 
   # Compare the candidate against the golden version
   cmp -s $WAV_OUT $GOLDEN_FILE
-  if [ ! $? -eq 0 ];
-  then
-    echo "!!! $mod does not match golden, see ${GOLDEN_FILE} and ${WAV_OUT}"
-    exit 1
+
+  retVal=$?
+  if [ $retVal -ne 0 ]; then
+    echo -e "\n!!! $mod does not match golden, see ${GOLDEN_FILE} and ${WAV_OUT}"
+    exit $retVal
   fi
 done
+
+exit $retVal

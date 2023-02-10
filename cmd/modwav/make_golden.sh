@@ -27,8 +27,7 @@ then
   exit 1
 fi
 
-if [ ! -d $OUTDIR ];
-then
+if [ ! -d $OUTDIR ]; then
   mkdir $OUTDIR
 fi
 
@@ -38,8 +37,11 @@ do
   MOD_IN="../../mods/$mod.mod"
   WAV_OUT="$OUTDIR/${mod}_golden.wav"
   go run . -wav $WAV_OUT $MOD_IN > /dev/null
-  if [ ! $? -eq 0 ];
-  then
-    echo "Failed to generate $WAV_OUT"
+
+  retVal=$?
+  if [ $retVal -ne 0 ]; then
+    echo -e "\nFailed to generate $WAV_OUT"
   fi
 done
+
+exit $retVal

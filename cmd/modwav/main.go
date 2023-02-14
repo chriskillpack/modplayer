@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 
 	"github.com/chriskillpack/modplayer"
+	"github.com/chriskillpack/modplayer/cmd/internal/config"
 	"github.com/chriskillpack/modplayer/cmd/modwav/wav"
-	"github.com/chriskillpack/modplayer/internal/comb"
 )
 
 var (
@@ -19,7 +19,7 @@ var (
 	flagHz       = flag.Int("hz", 44100, "output hz")
 	flagBoost    = flag.Int("boost", 1, "volume boost, an integer between 1 and 4")
 	flagStartOrd = flag.Int("start", 0, "starting order in the MOD, clamped to song max")
-	flagNoReverb = flag.Bool("noreverb", false, "disable reverb")
+	flagReverb   = flag.String("reverb", "light", "choose from light, medium, silly or none")
 )
 
 func main() {
@@ -74,24 +74,18 @@ func main() {
 	}
 	defer wavW.Finish()
 
-	var scratch []int16
-	var c *comb.CombFixed
-	if !*flagNoReverb {
-		c = comb.NewCombFixed(10*1024, 0.5, 1000, *flagHz)
-		scratch = make([]int16, 10*1024)
+	rvb, err := config.ReverbFromFlag(*flagReverb, *flagHz)
+	if err != nil {
+		log.Fatal(err)
 	}
+
+	scratch := make([]int16, 2048)
 	audioOut := make([]int16, 2048)
 
 	for player.IsPlaying() {
-		var n int
-		if !*flagNoReverb {
-			sc := scratch[:len(audioOut)]
-			n = player.GenerateAudio(sc) * 2
-			c.InputSamples(sc[:n])
-			n = c.GetAudio(audioOut)
-		} else {
-			n = player.GenerateAudio(audioOut) * 2
-		}
+		n := player.GenerateAudio(scratch) * 2
+		rvb.InputSamples(scratch[:n])
+		n = rvb.GetAudio(audioOut)
 		if err = wavW.WriteFrame(audioOut[:n]); err != nil {
 			wavF.Close()
 			log.Fatal(err)

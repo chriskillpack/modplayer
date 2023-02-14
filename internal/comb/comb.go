@@ -1,5 +1,18 @@
 package comb
 
+// Reverber applies reverb to audio
+type Reverber interface {
+	// InputSamples feeds the reverber with new sample data.
+	// Returns the number of samples that were consumed. Some implementations
+	// may have an limit on the amount of audio data they will store.
+	InputSamples(in []int16) int
+
+	// Retrieve audio data with applied reverb. Returns the number of available
+	// samples that were written to out. This may be less than the length of
+	// out if there is limited processed audio available.
+	GetAudio(out []int16) int
+}
+
 // Comb models a simple Comb filter reverb module. At construction time it takes
 // a block of sample data and applies reverb to it. It cannot be fed any more
 // sample data after this.
@@ -9,6 +22,7 @@ type Comb struct {
 	audio       []int16
 }
 
+// NewComb creates an instance of Comb.
 func NewComb(in []int16, decay float32, delayMs, sampleRate int) *Comb {
 	c := &Comb{
 		delayOffset: (delayMs * sampleRate) / 1000,
@@ -43,6 +57,7 @@ type CombAdd struct {
 	decay    float32
 }
 
+// NewCombAdd creates an instance of CombAdd
 // initialSize is in sample pairs
 func NewCombAdd(initialSize int, decay float32, delayMs, sampleRate int) *CombAdd {
 	c := &CombAdd{

@@ -36,7 +36,7 @@ for mod in "${MODS[@]}"
 do
   MOD_IN="../../mods/$mod.mod"
   WAV_OUT="$OUTDIR/${mod}_golden.wav"
-  go run . -noreverb -wav $WAV_OUT $MOD_IN > /dev/null
+  go run . -reverb none -wav $WAV_OUT $MOD_IN > /dev/null
 
   retVal=$?
   if [ $retVal -ne 0 ]; then

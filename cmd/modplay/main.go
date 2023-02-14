@@ -9,7 +9,7 @@ import (
 	"syscall"
 
 	"github.com/chriskillpack/modplayer"
-	"github.com/chriskillpack/modplayer/internal/comb"
+	"github.com/chriskillpack/modplayer/cmd/internal/config"
 	"github.com/fatih/color"
 	"github.com/gordonklaus/portaudio"
 )
@@ -18,7 +18,6 @@ var (
 	flagHz       = flag.Int("hz", 44100, "output hz")
 	flagBoost    = flag.Int("boost", 1, "volume boost, an integer between 1 and 4")
 	flagStartOrd = flag.Int("start", 0, "starting order in the MOD, clamped to song max")
-	flagNoReverb = flag.Bool("noreverb", false, "disable reverb")
 	flagReverb   = flag.String("reverb", "light", "choose from light, medium, silly or none")
 )
 
@@ -35,21 +34,6 @@ func main() {
 
 	if len(flag.Args()) == 0 {
 		log.Fatal("Missing MOD filename")
-	}
-
-	rf := float32(0.2)
-	rd := 150
-	switch *flagReverb {
-	case "medium":
-		rf = 0.3
-		rd = 250
-	case "silly":
-		rf = 0.5
-		rd = 2500
-	case "none":
-		*flagNoReverb = true
-	default:
-		log.Fatal("Unrecognized reverb setting %q", *flagReverb)
 	}
 
 	modF, err := os.ReadFile(flag.Arg(0))
@@ -78,31 +62,24 @@ func main() {
 		}
 	}()
 
-	var scratch []int16
-	var c *comb.CombAdd
-	if !*flagNoReverb {
-		c = comb.NewCombAdd(100*1024, rf, rd, *flagHz)
-		scratch = make([]int16, 10*1024)
+	rvb, err := config.ReverbFromFlag(*flagReverb, *flagHz)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	var stream *portaudio.Stream
+	scratch := make([]int16, 10*1024)
 	streamCB := func(out []int16) {
-		var n int
-		if !*flagNoReverb {
-			sc := scratch[:len(out)]
-			player.GenerateAudio(sc)
-			c.InputSamples(sc)
-			n = c.GetAudio(out)
-		} else {
-			n = player.GenerateAudio(out)
-		}
+		sc := scratch[:len(out)]
+		player.GenerateAudio(sc)
+		rvb.InputSamples(sc)
+		n := rvb.GetAudio(out)
 
 		if n == 0 {
 			player.Stop()
 		}
 	}
 
-	stream, err = portaudio.OpenDefaultStream(0, 2, float64(*flagHz), portaudio.FramesPerBufferUnspecified, streamCB)
+	stream, err := portaudio.OpenDefaultStream(0, 2, float64(*flagHz), portaudio.FramesPerBufferUnspecified, streamCB)
 	if err != nil {
 		log.Fatal(err)
 	}

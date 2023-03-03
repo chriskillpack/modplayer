@@ -13,59 +13,23 @@ type Reverber interface {
 	GetAudio(out []int16) int
 }
 
-// Comb models a simple Comb filter reverb module. At construction time it takes
-// a block of sample data and applies reverb to it. It cannot be fed any more
-// sample data after this.
-type Comb struct {
-	delayOffset int
-	readPos     int
-	audio       []int16
-}
-
-// NewComb creates an instance of Comb.
-func NewComb(in []int16, decay float32, delayMs, sampleRate int) *Comb {
-	c := &Comb{
-		delayOffset: (delayMs * sampleRate) / 1000,
-		audio:       make([]int16, len(in)),
-	}
-
-	copy(c.audio, in)
-	for i := 0; i < len(in)/2-c.delayOffset; i++ {
-		c.audio[(i+c.delayOffset)*2+0] += int16(float32(c.audio[i*2+0]) * decay)
-		c.audio[(i+c.delayOffset)*2+1] += int16(float32(c.audio[i*2+1]) * decay)
-	}
-
-	return c
-}
-
-func (c *Comb) GetAudio(out []int16) int {
-	n := len(out)
-	if c.readPos+n > len(c.audio) {
-		n = len(c.audio) - c.readPos
-	}
-	copy(out, c.audio[c.readPos:c.readPos+n])
-	c.readPos += n
-	return n
-}
-
 // CombAdd is a Comb filter can be fed audio data incrementally
 // It does not discard used samples and has no upper bound on memory used
+// Kept around as a clear implementation of reverb, not actually used anymore.
 type CombAdd struct {
-	Comb
-	readPos  int
-	writePos int
-	decay    float32
+	readPos, writePos int
+	delayOffset       int
+	decay             float32
+	audio             []int16
 }
 
 // NewCombAdd creates an instance of CombAdd
 // initialSize is in sample pairs
 func NewCombAdd(initialSize int, decay float32, delayMs, sampleRate int) *CombAdd {
 	c := &CombAdd{
-		Comb: Comb{
-			delayOffset: (delayMs * sampleRate) / 1000,
-			audio:       make([]int16, 0, initialSize*2),
-		},
-		decay: decay,
+		delayOffset: (delayMs * sampleRate) / 1000,
+		audio:       make([]int16, 0, initialSize*2),
+		decay:       decay,
 	}
 
 	return c
@@ -109,7 +73,7 @@ func (c *CombAdd) GetAudio(out []int16) int {
 
 // CombFixed is a Comb filter than uses a fixed size of backing memory
 type CombFixed struct {
-	Comb
+	CombAdd
 	readPos, writePos int
 	n                 int
 	seen              int // how much has been seen, used for applying delay
@@ -124,7 +88,7 @@ type CombFixed struct {
 func NewCombFixed(addSize int, decay float32, delayMs, sampleRate int) *CombFixed {
 	delayOffset := (2 * delayMs * sampleRate) / 1000
 	c := &CombFixed{
-		Comb: Comb{
+		CombAdd: CombAdd{
 			audio:       make([]int16, (delayOffset+addSize)*2),
 			delayOffset: delayOffset,
 		},

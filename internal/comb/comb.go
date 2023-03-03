@@ -122,7 +122,7 @@ type CombFixed struct {
 // appropriately to support the desired reverb delay but it can be increased
 // using the addSize parameter.
 func NewCombFixed(addSize int, decay float32, delayMs, sampleRate int) *CombFixed {
-	delayOffset := (delayMs * sampleRate) / 1000
+	delayOffset := (2 * delayMs * sampleRate) / 1000
 	c := &CombFixed{
 		Comb: Comb{
 			audio:       make([]int16, (delayOffset+addSize)*2),
@@ -197,7 +197,7 @@ func (c *CombFixed) applyReverb(ns, off int) {
 		}
 
 		// First part done, setup second part
-		off = 0
+		off += n1
 		ns = n2
 		c.delayPos = 0
 	}

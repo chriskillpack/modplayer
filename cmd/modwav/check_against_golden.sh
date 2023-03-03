@@ -35,6 +35,7 @@ do
   retVal=$?
   if [ $retVal -ne 0 ]; then
     echo -e "\nFailed to generate $WAV_OUT"
+    exit $retVal
   fi
 
   # Compare the candidate against the golden version
@@ -42,7 +43,8 @@ do
 
   retVal=$?
   if [ $retVal -ne 0 ]; then
-    echo -e "\n!!! $mod does not match golden, see ${GOLDEN_FILE} and ${WAV_OUT}"
+    echo -e "\n!!! $mod does not match golden"
+    echo "cmp -l $WAV_OUT $GOLDEN_FILE"
     exit $retVal
   fi
 done

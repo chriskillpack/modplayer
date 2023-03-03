@@ -41,6 +41,7 @@ do
   retVal=$?
   if [ $retVal -ne 0 ]; then
     echo -e "\nFailed to generate $WAV_OUT"
+    exit $retVal
   fi
 done
 

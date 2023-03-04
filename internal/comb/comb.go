@@ -73,13 +73,13 @@ func (c *CombAdd) GetAudio(out []int16) int {
 
 // CombFixed is a Comb filter than uses a fixed size of backing memory
 type CombFixed struct {
-	CombAdd
-	readPos, writePos int
-	n                 int
-	seen              int // how much has been seen, used for applying delay
-	delayPos          int
-	bufferSize        int
-	decay             float32
+	readPos, writePos     int
+	n                     int
+	seen                  int // how much has been seen, used for applying delay
+	delayOffset, delayPos int
+	bufferSize            int
+	decay                 float32
+	audio                 []int16
 }
 
 // NewCombFixed creates a new Comb filter. The internal buffer is sized
@@ -88,12 +88,10 @@ type CombFixed struct {
 func NewCombFixed(addSize int, decay float32, delayMs, sampleRate int) *CombFixed {
 	delayOffset := (2 * delayMs * sampleRate) / 1000
 	c := &CombFixed{
-		CombAdd: CombAdd{
-			audio:       make([]int16, (delayOffset+addSize)*2),
-			delayOffset: delayOffset,
-		},
-		bufferSize: (delayOffset + addSize) * 2,
-		decay:      decay,
+		audio:       make([]int16, (delayOffset+addSize)*2),
+		delayOffset: delayOffset,
+		bufferSize:  (delayOffset + addSize) * 2,
+		decay:       decay,
 	}
 	return c
 }

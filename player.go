@@ -147,12 +147,16 @@ var (
 	// in the MOD file to a note index for display. It is not used in
 	// the mixer.
 	periodTable = []int{
-		// C-1, C#1, D-1, ..., B-1
-		856, 808, 762, 720, 678, 640, 604, 570, 538, 508, 480, 453,
 		// C-2, C#2, D-2, ..., B-2
-		428, 404, 381, 360, 339, 320, 302, 285, 269, 254, 240, 226,
+		1712, 1616, 1524, 1440, 1356, 1280, 1208, 1140, 1076, 1016, 960, 907,
 		// C-3, C#3, D-3, ..., B-3
+		856, 808, 762, 720, 678, 640, 604, 570, 538, 508, 480, 453,
+		// C-4, C#4, D-4, ..., B-4
+		428, 404, 381, 360, 339, 320, 302, 285, 269, 254, 240, 226,
+		// C-5, C#5, D-5, ..., B-5
 		214, 202, 190, 180, 170, 160, 151, 143, 135, 127, 120, 113,
+		// C-6, C#6, D-6, ..., B-6
+		107, 101, 95, 90, 85, 80, 75, 71, 67, 63, 60, 56,
 	}
 
 	// Fine tuning values from Micromod. Fine tuning goes from -8
@@ -767,7 +771,7 @@ func decodeNote(note []byte) (int, int, byte, byte) {
 func noteStrFromPeriod(period int) string {
 	for i, prd := range periodTable {
 		if prd == period {
-			return fmt.Sprintf("%s%d", notes[i%12], i/12+3)
+			return fmt.Sprintf("%s%d", notes[i%12], i/12+2)
 		}
 	}
 

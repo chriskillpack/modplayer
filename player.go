@@ -804,6 +804,22 @@ func readSampleInfo(r *bytes.Reader) (*Sample, error) {
 		smp.LoopLen = 0
 	}
 
+	// If the loop data overshoots the end of the sample then correct the loop
+	// This logic lifted from MilkyTracker, not encountered these situations yet
+	if smp.LoopStart+smp.LoopLen > smp.Length {
+		// First attempt, move the loop start back
+		dx := smp.LoopStart + smp.LoopLen - smp.Length
+		smp.LoopStart -= dx
+		// If it still overshoots the end then clamp the loop
+		if smp.LoopStart+smp.LoopLen > smp.Length {
+			dx = smp.LoopStart + smp.LoopLen - smp.Length
+			smp.LoopLen -= dx
+		}
+	}
+	if smp.LoopLen < 2 {
+		smp.LoopLen = 0
+	}
+
 	return smp, nil
 }
 

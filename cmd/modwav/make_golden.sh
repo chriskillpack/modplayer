@@ -9,10 +9,12 @@ MODS=("space_debris" "dope" "believe")
 OUTDIR="golden"
 skipDirty=false
 
-while getopts d flag
+while getopts "d" flag
 do
   case "${flag}" in
     d) skipDirty=true;;
+    *) echo "usage: $0 [-d]" >&2
+       exit 1 ;;
   esac
 done
 
@@ -21,7 +23,7 @@ done
 # the command prints nothing to stdout.
 dirtyTree=$( git diff --quiet )$?
 
-if [ $skipDirty == false ] && [ $dirtyTree -eq 1 ];
+if [ $skipDirty == false ] && [ "$dirtyTree" -eq 1 ];
 then
   echo "working tree is dirty, please stash changes"
   exit 1
@@ -36,7 +38,7 @@ for mod in "${MODS[@]}"
 do
   MOD_IN="../../mods/$mod.mod"
   WAV_OUT="$OUTDIR/${mod}_golden.wav"
-  go run . -reverb none -wav $WAV_OUT $MOD_IN > /dev/null
+  go run . -reverb none -wav "$WAV_OUT" "$MOD_IN" > /dev/null
 
   retVal=$?
   if [ $retVal -ne 0 ]; then
@@ -45,4 +47,5 @@ do
   fi
 done
 
+# shellcheck disable=SC2086
 exit $retVal

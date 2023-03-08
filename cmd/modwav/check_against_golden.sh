@@ -14,7 +14,7 @@ then
     exit 1
 fi
 
-TMPDIR=`mktemp -d`
+TMPDIR=$(mktemp -d)
 
 retVal=$?
 if [ $retVal -ne 0 ]; then
@@ -30,7 +30,7 @@ do
   echo "Checking $mod.mod"
 
   # Generate the candidate WAV file
-  go run . -reverb none -wav $WAV_OUT $MOD_IN > /dev/null
+  go run . -reverb none -wav "$WAV_OUT" "$MOD_IN" > /dev/null
 
   retVal=$?
   if [ $retVal -ne 0 ]; then
@@ -39,7 +39,7 @@ do
   fi
 
   # Compare the candidate against the golden version
-  cmp -s $WAV_OUT $GOLDEN_FILE
+  cmp -s "$WAV_OUT" "$GOLDEN_FILE"
 
   retVal=$?
   if [ $retVal -ne 0 ]; then

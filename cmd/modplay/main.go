@@ -41,7 +41,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	song, err := modplayer.NewSongFromBytes(modF)
+	song, err := modplayer.NewMODSongFromBytes(modF)
 	if err != nil {
 		log.Fatal(err)
 	}

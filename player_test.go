@@ -11,7 +11,7 @@ func TestLoadSong(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	song, err := NewSongFromBytes(mod)
+	song, err := NewMODSongFromBytes(mod)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func newTestPlayerFromMod(file string) (*Player, error) {
 	if err != nil {
 		return nil, err
 	}
-	song, err := NewSongFromBytes(mod)
+	song, err := NewMODSongFromBytes(mod)
 	if err != nil {
 		return nil, err
 	}

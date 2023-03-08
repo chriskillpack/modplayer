@@ -5,9 +5,11 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/chriskillpack/modplayer"
 	"github.com/chriskillpack/modplayer/cmd/internal/config"
@@ -31,8 +33,8 @@ func main() {
 		log.Fatal("Missing MOD filename")
 	}
 
-	modName := flag.Arg(0)
-	modF, err := os.ReadFile(modName)
+	songFName := flag.Arg(0)
+	songF, err := os.ReadFile(songFName)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -42,12 +44,20 @@ func main() {
 	// /music/songs/mod/foo.mod would default to ./foo.wav
 	if *flagWAVOut == "" {
 		// If no WAV file output specified, write it out the current directory
-		base := filepath.Base(modName)
-		baseStripped := base[:len(base)-len(filepath.Ext(modName))]
+		base := filepath.Base(songFName)
+		baseStripped := base[:len(base)-len(filepath.Ext(songFName))]
 		*flagWAVOut = baseStripped + ".wav"
 	}
 
-	song, err := modplayer.NewSongFromBytes(modF)
+	var song *modplayer.Song
+	switch strings.ToLower(filepath.Ext(songFName)) {
+	case ".mod":
+		song, err = modplayer.NewMODSongFromBytes(songF)
+	case ".s3m":
+		song, err = modplayer.NewS3MSongFromBytes(songF)
+	default:
+		err = fmt.Errorf("unsupported song %q", songFName)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}

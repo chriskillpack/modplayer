@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+# A script to verify the player output against previously generated golden files
+# It is a useful end-to-end test which has caught several bugs. Generate the
+# golden files with make_golden.sh first. This script should be run from the
+# project root.
 
-# A script to verify player output against pre-generated golden files
-# It's not very robust and serves only as a quick end-to-end test
-# Generate the golden files with make_golden.sh first.
 set -o pipefail
 
 MODS=("space_debris" "dope" "believe")
@@ -22,15 +23,24 @@ if [ $retVal -ne 0 ]; then
   exit $retVal
 fi
 
+missing=false
+
 for mod in "${MODS[@]}"
 do
-  MOD_IN="../../mods/$mod.mod"
+  MOD_IN="./mods/$mod.mod"
   WAV_OUT="$TMPDIR/$mod.wav"
   GOLDEN_FILE="$GOLDENDIR/${mod}_golden.wav"
-  echo "Checking $mod.mod"
+  echo -n "Checking $mod.mod..."
+
+  # Check that the golden file exists
+  if [ ! -f "$GOLDEN_FILE" ]; then
+    echo " $GOLDEN_FILE does not exist, skipping"
+    missing=true
+    continue
+  fi
 
   # Generate the candidate WAV file
-  go run . -reverb none -wav "$WAV_OUT" "$MOD_IN" > /dev/null
+  go run ./cmd/modwav -reverb none -wav "$WAV_OUT" "$MOD_IN" > /dev/null
 
   retVal=$?
   if [ $retVal -ne 0 ]; then
@@ -46,7 +56,12 @@ do
     echo -e "\n!!! $mod does not match golden"
     echo "cmp -l $WAV_OUT $GOLDEN_FILE"
     exit $retVal
+  else
+    echo  # Move to next line, see echo -n at top of loop
   fi
 done
 
+if $missing ; then
+  exit 2
+fi
 exit $retVal

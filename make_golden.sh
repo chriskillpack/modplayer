@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Generates golden WAV files from mods, useful for testing
-# By default will exit if working tree is dirty, use -d to skip this check
+# Generates golden WAV files from mods, useful for testing. By default this
+# script will exit if working tree is dirty, use -d to skip this check.
+# This script should be run from the project root.
 
 set -o pipefail
-set -x
 
 MODS=("space_debris" "dope" "believe")
 OUTDIR="golden"
@@ -36,9 +36,11 @@ fi
 # For each MOD generate the golden wav
 for mod in "${MODS[@]}"
 do
-  MOD_IN="../../mods/$mod.mod"
+  MOD_IN="./mods/$mod.mod"
   WAV_OUT="$OUTDIR/${mod}_golden.wav"
-  go run . -reverb none -wav "$WAV_OUT" "$MOD_IN" > /dev/null
+
+  echo "Generating $WAV_OUT"
+  go run ./cmd/modwav -reverb none -wav "$WAV_OUT" "$MOD_IN" > /dev/null
 
   retVal=$?
   if [ $retVal -ne 0 ]; then

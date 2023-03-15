@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestLoadSong(t *testing.T) {
+func TestLoadMODSong(t *testing.T) {
 	mod, err := os.ReadFile("mods/space_debris.mod")
 	if err != nil {
 		t.Fatal(err)
@@ -49,22 +49,22 @@ func TestNoteDataFor(t *testing.T) {
 		notes []testnote
 	}{
 		{0, []testnote{
-			testnote{"C-4", 1},
-			testnote{"C#4", 2},
-			testnote{"D-4", 3},
-			testnote{"D#4", 4},
+			{"C-4", 1},
+			{"C#4", 2},
+			{"D-4", 3},
+			{"D#4", 4},
 		}},
 		{1, []testnote{
-			testnote{"D-5", 1},
-			testnote{"D#5", 2},
-			testnote{"G-5", 3},
-			testnote{"G#5", 4},
+			{"D-5", 1},
+			{"D#5", 2},
+			{"G-5", 3},
+			{"G#5", 4},
 		}},
 		{2, []testnote{
-			testnote{"C-6", 1},
-			testnote{"C#6", 2},
-			testnote{"D-6", 3},
-			testnote{"E-6", 4},
+			{"C-6", 1},
+			{"C#6", 2},
+			{"D-6", 3},
+			{"E-6", 4},
 		}},
 	}
 	for _, ex := range expected {

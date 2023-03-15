@@ -7,8 +7,7 @@ import (
 const (
 	retracePALHz = 7093789.2 // Amiga PAL vertical retrace timing
 
-	rowsPerPattern  = 64
-	bytesPerChannel = 4
+	rowsPerPattern = 64
 
 	// MOD note effects
 	effectPortamentoUp        = 0x1
@@ -86,6 +85,15 @@ type PlayerState struct {
 	Channels []ChannelState
 }
 
+// Internal representation of a pattern note
+type note struct {
+	Sample int
+	Period int
+	Volume int // Unused by MOD files
+	Effect byte
+	Param  byte
+}
+
 type channel struct {
 	sample         int // sample that is being played (or -1 if no sample)
 	sampleToPlay   int // sample _to be played_, used for Note Delay effect
@@ -125,7 +133,7 @@ type Song struct {
 	Speed    int // number of tempo ticks before advancing to the next row
 
 	Samples  []Sample
-	Patterns [][]byte
+	patterns [][]note
 }
 
 // Sample holds information about an instrument sample including sample data
@@ -136,6 +144,7 @@ type Sample struct {
 	Volume    int
 	LoopStart int
 	LoopLen   int
+	C4Speed   int
 	Data      []int8
 }
 
@@ -265,16 +274,15 @@ func (p *Player) State() PlayerState {
 	rowDataIdx := p.rowDataIndex()
 
 	for i := range state.Notes {
-		sampNum, period, effect, param := decodeMODNote(
-			p.Song.Patterns[pattern][rowDataIdx : rowDataIdx+bytesPerChannel])
+		patnote := &p.Song.patterns[pattern][rowDataIdx]
 
 		note := &state.Notes[i]
-		note.Note = noteStrFromPeriod(period)
-		note.Instrument = sampNum
-		note.Effect = int(effect)
-		note.Param = int(param)
+		note.Note = noteStrFromPeriod(patnote.Period)
+		note.Instrument = patnote.Sample
+		note.Effect = int(patnote.Effect)
+		note.Param = int(patnote.Param)
 
-		rowDataIdx += bytesPerChannel
+		rowDataIdx++
 	}
 
 	for i := range p.channels {
@@ -330,18 +338,17 @@ func (p *Player) NoteDataFor(order, row int) []ChannelNoteData {
 	nd := make([]ChannelNoteData, p.Channels)
 
 	pattern := p.Orders[order]
-	rowDataIdx := row * p.Song.Channels * bytesPerChannel
+	rowDataIdx := row * p.Song.Channels
 	for i := 0; i < p.Channels; i++ {
-		sampNum, period, effect, param := decodeMODNote(
-			p.Song.Patterns[pattern][rowDataIdx : rowDataIdx+bytesPerChannel])
+		patnote := &p.Song.patterns[pattern][rowDataIdx]
 
 		note := &nd[i]
-		note.Note = noteStrFromPeriod(period)
-		note.Instrument = sampNum
-		note.Effect = int(effect)
-		note.Param = int(param)
+		note.Note = noteStrFromPeriod(patnote.Period)
+		note.Instrument = patnote.Sample
+		note.Effect = int(patnote.Effect)
+		note.Param = int(patnote.Param)
 
-		rowDataIdx += bytesPerChannel
+		rowDataIdx++
 	}
 
 	return nd
@@ -451,8 +458,11 @@ func (p *Player) sequenceTick() bool {
 			channel := &p.channels[i]
 
 			channel.effectCounter = 0
-			sampNum, period, effect, param := decodeMODNote(
-				p.Song.Patterns[pattern][rowDataIdx : rowDataIdx+bytesPerChannel])
+			patnote := &p.Song.patterns[pattern][rowDataIdx]
+			sampNum := patnote.Sample
+			period := patnote.Period
+			effect := byte(patnote.Effect)
+			param := byte(patnote.Param)
 
 			// Getting note triggering logic correct was a pain, H/T micromod
 
@@ -571,7 +581,7 @@ func (p *Player) sequenceTick() bool {
 					}
 				}
 			}
-			rowDataIdx += 4
+			rowDataIdx++
 		}
 
 		p.row++
@@ -750,7 +760,7 @@ func (p *Player) rowDataIndex() int {
 		rc = 0
 	}
 
-	return rc * p.Song.Channels * bytesPerChannel
+	return rc * p.Song.Channels
 }
 
 // Compute the string representation of a note ('C-4', 'F#3', etc)

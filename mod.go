@@ -72,11 +72,20 @@ func NewMODSongFromBytes(songBytes []byte) (*Song, error) {
 		return nil, fmt.Errorf("unrecognized MOD format %s", string(x))
 	}
 
+	const bytesPerChannel = 4
+
 	// Read pattern data
-	song.Patterns = make([][]byte, patterns)
+	song.patterns = make([][]note, patterns)
+	scratch := make([]byte, rowsPerPattern*song.Channels*bytesPerChannel)
 	for i := 0; i < patterns; i++ {
-		song.Patterns[i] = make([]byte, rowsPerPattern*song.Channels*bytesPerChannel)
-		buf.Read(song.Patterns[i])
+		song.patterns[i] = make([]note, rowsPerPattern*song.Channels)
+		if n, err := buf.Read(scratch); n != rowsPerPattern*song.Channels*bytesPerChannel || err != nil {
+			return nil, err
+		}
+
+		for p := 0; p < rowsPerPattern*song.Channels; p++ {
+			song.patterns[i][p] = noteFromMODbytes(scratch[p*bytesPerChannel : (p+1)*bytesPerChannel])
+		}
 	}
 
 	// Read sample data
@@ -146,11 +155,11 @@ func readMODSampleInfo(r *bytes.Reader) (*Sample, error) {
 	return smp, nil
 }
 
-func decodeMODNote(note []byte) (int, int, byte, byte) {
-	sampNum := note[0]&0xF0 + note[2]>>4
-	period := int(int(note[0]&0xF)<<8 + int(note[1]))
-	effNum := note[2] & 0xF
-	effParm := note[3]
-
-	return int(sampNum), period, effNum, effParm
+func noteFromMODbytes(nb []byte) note {
+	return note{
+		Sample: int(nb[0]&0xF0 + nb[2]>>4),
+		Period: int(int(nb[0]&0xF)<<8 + int(nb[1])),
+		Effect: nb[2] & 0xF,
+		Param:  nb[3],
+	}
 }

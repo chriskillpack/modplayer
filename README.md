@@ -40,12 +40,13 @@ You can find MOD files at [The Mod Archive](https://modarchive.org/) but I inclu
 `space_debris.mod` - one of the most popular MODs on The Mod Archive\
 `dope.mod` - From the PC demo [DOPE](http://www.pouet.net/prod.php?which=37) by Complex\
 `believe.mod` - From the 64kb PC intro [Believe](http://www.pouet.net/prod.php?which=1151) by Valhalla
+`caero.s3m` - From the PC demo [Caero](https://www.pouet.net/prod.php?which=2163) by Plant & Electromotive Force
 
 # Technical Docs
 
-[FireLight's MOD format document](docs/fmoddoc.txt) was the most useful document. I converted the original doc that is written with box drawing characters from PC code page 437 into Unicode.
+FireLight's [MOD](docs/fmoddoc.txt) and [S3M](docs/fs3mdoc.txt) format documents were the most useful documents. I converted the box drawing characters from PC code page 437 in the original docs into Unicode. The official ScreamTracker 3 [TECH.DOC](docs/s3m_tech.doc) was also handy.
 
-I used [micromod](https://github.com/martincameron/micromod) for some implementation ideas.
+I used [micromod](https://github.com/martincameron/micromod) and [MilkyTracker](https://github.com/milkytracker/MilkyTracker) as implementation guides.
 
 # Compiling PortAudio
 

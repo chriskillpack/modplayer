@@ -80,6 +80,11 @@ func TestNoteDataFor(t *testing.T) {
 	}
 }
 
+func TestPeriodToPlayerNote(t *testing.T) {
+	x := periodToPlayerNote(1712)
+	_ = x
+}
+
 func BenchmarkMixChannels(b *testing.B) {
 	player, err := newTestPlayerFromMod("testdata/mix.mod")
 	if err != nil {

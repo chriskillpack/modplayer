@@ -9,6 +9,12 @@ import (
 	"strings"
 )
 
+const (
+	s3mfx_SetSpeed     = 0xA
+	s3mfx_PatternJump  = 0xB
+	s3mfx_PatternBreak = 0xC
+)
+
 var ErrInvalidS3M = errors.New("invalid S3M file")
 
 func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
@@ -49,6 +55,8 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 	if err := binary.Read(buf, binary.LittleEndian, &header); err != nil {
 		return nil, err
 	}
+	song.Tempo = int(header.Tempo)
+	song.Speed = int(header.Speed)
 
 	// Count up the number of channels
 	var nc int
@@ -57,6 +65,7 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 			break
 		}
 	}
+	song.Channels = nc
 
 	// Read in the orders
 	orders := make([]byte, header.Length)
@@ -147,5 +156,106 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 		song.Samples[i] = sample
 	}
 
-	return nil, nil
+	song.patterns = make([][]note, header.NumPatterns)
+
+	// Read in the packed pattern data
+	for i := 0; i < int(header.NumPatterns); i++ {
+		if _, err := buf.Seek(int64(paras[i+int(header.NumInstruments)])*16, io.SeekStart); err != nil {
+			return nil, err
+		}
+
+		var packedLen int16
+		if err := binary.Read(buf, binary.LittleEndian, &packedLen); err != nil {
+			return nil, err
+		}
+		packedLen -= 2
+
+		song.patterns[i] = initNotePattern(song.Channels)
+
+		// TODO: What do we clear the pattern data to?
+
+		row := 0
+		for packedLen > 0 {
+			b, err := buf.ReadByte()
+			if err != nil {
+				return nil, err
+			}
+			packedLen--
+			if b == 0 {
+				// End of row
+				row++
+				if row >= 64 {
+					break
+				}
+				continue
+			}
+
+			chn := int(b & 31)
+			if chn > song.Channels {
+				// Bogus data, skip this packed byte. Need to use top 3 bits
+				// of byte to determine how much data follows and needs to be
+				// skipped. Since only 8 values, precomputed into small table.
+				// top3 | skip
+				//  000 |   0
+				//  001 |   2
+				//  010 |   1
+				//  011 |   3
+				//  100 |   2
+				//  101 |   4
+				//  110 |   3
+				//  111 |   5
+				skip := []int64{0, 2, 1, 3, 2, 4, 3, 5}[b>>5]
+				buf.Seek(skip, io.SeekCurrent)
+				packedLen -= int16(skip)
+				continue
+			}
+
+			no := &song.patterns[i][row*song.Channels+chn]
+
+			// note and instrument
+			if b&32 == 32 {
+				noter, _ := buf.ReadByte() // if noter < 254, hi nibble: octave, lo: note in octave
+				intr, _ := buf.ReadByte()
+				packedLen -= 2
+				no.Period = int(noter) // TODO: This will need some work
+				no.Sample = int(intr)
+			}
+
+			// volume
+			if b&64 == 64 {
+				vol, _ := buf.ReadByte()
+				packedLen--
+				no.Volume = int(vol)
+			}
+
+			// effect
+			if b&128 == 128 {
+				efct, _ := buf.ReadByte()
+				parm, _ := buf.ReadByte()
+				efct, parm = convertS3MEffect(efct, parm)
+				no.Effect = efct
+				no.Param = parm
+				packedLen -= 2
+			}
+		}
+	}
+
+	return song, nil
+}
+
+func convertS3MEffect(efc, parm byte) (effect byte, param byte) {
+	effect, param = efc, parm
+
+	switch efc {
+	case s3mfx_SetSpeed:
+		effect = effectSetSpeed
+	case s3mfx_PatternJump:
+		effect = effectJumpToPattern
+	case s3mfx_PatternBreak:
+		effect = effectPatternBrk
+	default:
+		// no-op
+	}
+
+	return
 }

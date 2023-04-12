@@ -84,7 +84,14 @@ func NewMODSongFromBytes(songBytes []byte) (*Song, error) {
 		}
 
 		for p := 0; p < rowsPerPattern*song.Channels; p++ {
-			song.patterns[i][p] = noteFromMODbytes(scratch[p*bytesPerChannel : (p+1)*bytesPerChannel])
+			n := noteFromMODbytes(scratch[p*bytesPerChannel : (p+1)*bytesPerChannel])
+			n.Period = periodToPlayerNote(n.Period)
+			if n.Effect == effectSetVolume {
+				n.Volume = int(n.Param)
+			} else {
+				n.Volume = 0xFF // no volume set on this note
+			}
+			song.patterns[i][p] = n
 		}
 	}
 
@@ -162,4 +169,20 @@ func noteFromMODbytes(nb []byte) note {
 		Effect: nb[2] & 0xF,
 		Param:  nb[3],
 	}
+}
+
+// Convert an Amiga period to octave<<4|note format.
+func periodToPlayerNote(period int) int {
+	for octave := 0; octave < 10; octave++ {
+		for p := 0; p < 12; p++ {
+			if period >= (periodTable[p] >> octave) {
+				if octave < 2 {
+					fmt.Printf("Found one %d gives %d,%d\n", period, octave, p)
+				}
+				return octave<<4 | p
+			}
+		}
+	}
+
+	return 0 // TODO - what to return here?
 }

@@ -51,7 +51,9 @@ type Player struct {
 	order         int // current order of the song
 	playing       bool
 
-	Mute uint // bitmask of muted channels, channel 1 in LSB
+	// Bitmask of muted channels, channel 1 in LSB. To mute a channel set
+	// its bit to 1.
+	Mute uint
 
 	channels []channel
 }
@@ -89,7 +91,7 @@ type PlayerState struct {
 type note struct {
 	Sample int
 	Period int
-	Volume int // Unused by MOD files
+	Volume int // Unused by MOD files, FF=no value set, ignore
 	Effect byte
 	Param  byte
 }
@@ -163,6 +165,11 @@ var (
 		214, 202, 190, 180, 170, 160, 151, 143, 135, 127, 120, 113,
 		// C-6, C#6, D-6, ..., B-6
 		107, 101, 95, 90, 85, 80, 75, 71, 67, 63, 60, 56,
+	}
+
+	s3mPeriodTable = []int{
+		// C-?, C#?, D-?, ..., B-?
+		1712, 1616, 1524, 1440, 1356, 1280, 1208, 1140, 1076, 1016, 960, 907,
 	}
 
 	// Fine tuning values from Micromod. Fine tuning goes from -8
@@ -356,8 +363,8 @@ func (p *Player) NoteDataFor(order, row int) []ChannelNoteData {
 
 func (p *Player) reset() {
 	p.Stop()
-	p.setTempo(125)
-	p.Speed = 6
+	p.setTempo(p.Song.Tempo)
+	p.Speed = p.Song.Speed
 	p.order = 0
 	p.row = 0
 
@@ -457,6 +464,11 @@ func (p *Player) sequenceTick() bool {
 		for i := 0; i < p.Song.Channels; i++ {
 			channel := &p.channels[i]
 
+			if (p.Mute & (1 << i)) != 0 {
+				rowDataIdx++
+				continue
+			}
+
 			channel.effectCounter = 0
 			patnote := &p.Song.patterns[pattern][rowDataIdx]
 			sampNum := patnote.Sample
@@ -480,7 +492,7 @@ func (p *Player) sequenceTick() bool {
 			// If there is a period...
 			if period > 0 {
 				// ... save it away as the porta to note destination
-				channel.portaPeriod = period
+				channel.portaPeriod = periodFromS3MNote(byte(period))
 
 				// ... restart the sample if effect isn't 3, 5 or 0xEDx
 				if effect != effectPortaToNote && effect != effectPortaToNoteVolSlide &&
@@ -488,7 +500,12 @@ func (p *Player) sequenceTick() bool {
 					channel.samplePosition = 0
 
 					// ... reset the period
-					channel.period = (period * fineTuning[channel.fineTune]) >> 12
+					// channel.period = (period * fineTuning[channel.fineTune]) >> 12
+
+					// convert the S3M note to a period
+					if period < 254 {
+						channel.period = periodFromS3MNote(byte(period))
+					}
 
 					// ... assign the new instrument if one was provided
 					channel.sample = channel.sampleToPlay
@@ -503,6 +520,10 @@ func (p *Player) sequenceTick() bool {
 
 			channel.vibratoAdjust = 0
 			channel.tremoloAdjust = 0
+
+			if patnote.Volume != 0xFF {
+				channel.volume = patnote.Volume
+			}
 
 			switch effect {
 			case effectPortaToNote:
@@ -532,8 +553,8 @@ func (p *Player) sequenceTick() bool {
 				}
 			case effectSampleOffset:
 				channel.samplePosition = uint(param) << 24
-			case effectSetVolume:
-				channel.volume = int(param)
+			// case effectSetVolume:
+			// 	channel.volume = int(param)
 			case effectJumpToPattern:
 				p.order = int(param)
 				if p.order >= len(p.Orders) {
@@ -763,6 +784,16 @@ func (p *Player) rowDataIndex() int {
 	return rc * p.Song.Channels
 }
 
+// Allocate and initialize a new pattern of notes
+func initNotePattern(nch int) []note {
+	notes := make([]note, rowsPerPattern*nch)
+	for i := range notes {
+		notes[i].Volume = 0xFF
+	}
+
+	return notes
+}
+
 // Compute the string representation of a note ('C-4', 'F#3', etc)
 // from it's period value. Returns a string of three spaces if the
 // note is unrecognized.
@@ -774,6 +805,13 @@ func noteStrFromPeriod(period int) string {
 	}
 
 	return "   "
+}
+
+func periodFromS3MNote(note byte) int {
+	s3mnote := note & 0xF
+	s3moctave := note >> 4
+	s3mperiod := 8363 * 16 * (s3mPeriodTable[s3mnote] >> s3moctave) / 8383 // TODO: support finetune
+	return s3mperiod / 4
 }
 
 // Useful function to dump contents of the audio buffer

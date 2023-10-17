@@ -157,6 +157,7 @@ var (
 	// Amiga period values. This table is used to map the note period
 	// in the MOD file to a note index for display. It is not used in
 	// the mixer.
+	//lint:ignore U1000 This will be reused later
 	periodTable = []int{
 		// C-2, C#2, D-2, ..., B-2
 		1712, 1616, 1524, 1440, 1356, 1280, 1208, 1140, 1076, 1016, 960, 907,
@@ -170,7 +171,7 @@ var (
 		107, 101, 95, 90, 85, 80, 75, 71, 67, 63, 60, 56,
 	}
 
-	// This will be reused later
+	//lint:ignore U1000 This will be reused later
 	s3mPeriodTable = []int{
 		// C-?, C#?, D-?, ..., B-?
 		1712, 1616, 1524, 1440, 1356, 1280, 1208, 1140, 1076, 1016, 960, 907,
@@ -180,7 +181,7 @@ var (
 	// to +7 with 0 (no fine tuning) in the middle at index 8. The
 	// values are .12 fixed point and used to scale the note period.
 	// A fine tuning value of -8 is equal to the next lower note.
-	// This will be reused later
+	//lint:ignore U1000 This will be reused later
 	fineTuning = []int{
 		4340, 4308, 4277, 4247, 4216, 4186, 4156, 4126,
 		4096, 4067, 4037, 4008, 3979, 3951, 3922, 3894,
@@ -289,7 +290,7 @@ func (p *Player) State() PlayerState {
 		patnote := &p.Song.patterns[pattern][rowDataIdx]
 
 		note := &state.Notes[i]
-		note.Note = noteStrFromPeriod(patnote.Period)
+		note.Note = noteStr(patnote.Period)
 		note.Instrument = patnote.Sample
 		note.Effect = int(patnote.Effect)
 		note.Param = int(patnote.Param)
@@ -355,7 +356,7 @@ func (p *Player) NoteDataFor(order, row int) []ChannelNoteData {
 		patnote := &p.Song.patterns[pattern][rowDataIdx]
 
 		note := &nd[i]
-		note.Note = noteStrFromPeriod(patnote.Period)
+		note.Note = noteStr(patnote.Period)
 		note.Instrument = patnote.Sample
 		note.Effect = int(patnote.Effect)
 		note.Param = int(patnote.Param)
@@ -799,20 +800,17 @@ func initNotePattern(nch int) []note {
 	return notes
 }
 
-// Compute the string representation of a note ('C-4', 'F#3', etc)
-// from it's period value. Returns a string of three spaces if the
-// note is unrecognized.
-func noteStrFromPeriod(period int) string {
-	for i, prd := range periodTable {
-		if prd == period {
-			return fmt.Sprintf("%s%d", notes[i%12], i/12+2)
-		}
+// Compute the string representation of a note ('C-4', 'F#3', etc). Returns a
+// string of three spaces if the note is unrecognized.
+func noteStr(note int) string {
+	if note == 0 {
+		return "   "
 	}
 
-	return "   "
+	return fmt.Sprintf("%s%d", notes[note%12], note/12-1)
 }
 
-// Keeping this around for research
+//lint:ignore U1000 Keeping this around for research
 func periodFromS3MNoteOld(note byte) int {
 	s3mnote := note & 0xF
 	s3moctave := note >> 4
@@ -829,6 +827,8 @@ func periodFromPlayerNote(note int) int {
 // Useful function to dump contents of the audio buffer
 // tcur = the absolute offset (in samples) in the song of the output buffer
 // ns = number of samples to print
+//
+//lint:ignore U1000 Keep around for debugging
 func dumpChannel(tcur, ns int, out []int16) {
 	fmt.Printf("%d: ", tcur)
 	for i := 0; i < ns; i++ {

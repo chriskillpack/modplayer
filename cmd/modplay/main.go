@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/chriskillpack/modplayer"
@@ -33,15 +35,24 @@ func main() {
 	flag.Parse()
 
 	if len(flag.Args()) == 0 {
-		log.Fatal("Missing MOD filename")
+		log.Fatal("Missing song filename")
 	}
 
-	modF, err := os.ReadFile(flag.Arg(0))
+	songFName := flag.Arg(0)
+	songF, err := os.ReadFile(songFName)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	song, err := modplayer.NewMODSongFromBytes(modF)
+	var song *modplayer.Song
+	switch strings.ToLower(filepath.Ext(songFName)) {
+	case ".mod":
+		song, err = modplayer.NewMODSongFromBytes(songF)
+	case ".s3m":
+		song, err = modplayer.NewS3MSongFromBytes(songF)
+	default:
+		err = fmt.Errorf("unsupported song %q", songFName)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -30,7 +30,7 @@ func main() {
 	flag.Parse()
 
 	if len(flag.Args()) == 0 {
-		log.Fatal("Missing MOD filename")
+		log.Fatal("Missing song filename")
 	}
 
 	songFName := flag.Arg(0)

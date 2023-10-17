@@ -1,7 +1,10 @@
 package modplayer
 
+// Something else to look at https://www.celersms.com/doc/XM_file_format.pdf
+
 import (
 	"fmt"
+	"math"
 )
 
 const (
@@ -167,6 +170,7 @@ var (
 		107, 101, 95, 90, 85, 80, 75, 71, 67, 63, 60, 56,
 	}
 
+	// This will be reused later
 	s3mPeriodTable = []int{
 		// C-?, C#?, D-?, ..., B-?
 		1712, 1616, 1524, 1440, 1356, 1280, 1208, 1140, 1076, 1016, 960, 907,
@@ -176,6 +180,7 @@ var (
 	// to +7 with 0 (no fine tuning) in the middle at index 8. The
 	// values are .12 fixed point and used to scale the note period.
 	// A fine tuning value of -8 is equal to the next lower note.
+	// This will be reused later
 	fineTuning = []int{
 		4340, 4308, 4277, 4247, 4216, 4186, 4156, 4126,
 		4096, 4067, 4037, 4008, 3979, 3951, 3922, 3894,
@@ -492,7 +497,7 @@ func (p *Player) sequenceTick() bool {
 			// If there is a period...
 			if period > 0 {
 				// ... save it away as the porta to note destination
-				channel.portaPeriod = periodFromS3MNote(byte(period))
+				channel.portaPeriod = periodFromPlayerNote(period)
 
 				// ... restart the sample if effect isn't 3, 5 or 0xEDx
 				if effect != effectPortaToNote && effect != effectPortaToNoteVolSlide &&
@@ -504,7 +509,7 @@ func (p *Player) sequenceTick() bool {
 
 					// convert the S3M note to a period
 					if period < 254 {
-						channel.period = periodFromS3MNote(byte(period))
+						channel.period = periodFromPlayerNote(period)
 					}
 
 					// ... assign the new instrument if one was provided
@@ -807,11 +812,18 @@ func noteStrFromPeriod(period int) string {
 	return "   "
 }
 
-func periodFromS3MNote(note byte) int {
+// Keeping this around for research
+func periodFromS3MNoteOld(note byte) int {
 	s3mnote := note & 0xF
 	s3moctave := note >> 4
-	s3mperiod := 8363 * 16 * (s3mPeriodTable[s3mnote] >> s3moctave) / 8383 // TODO: support finetune
-	return s3mperiod / 4
+	s3mperiod := 8363 * 4 * (s3mPeriodTable[s3mnote] >> s3moctave) / 8383 // TODO: support finetune
+	return s3mperiod
+}
+
+// Converts an player internal note representation into an Amiga MOD periods
+// This code is a complete lift from libxmp.
+func periodFromPlayerNote(note int) int {
+	return int(periodBase / math.Pow(2, float64(note)/12.0))
 }
 
 // Useful function to dump contents of the audio buffer

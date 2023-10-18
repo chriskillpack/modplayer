@@ -90,10 +90,25 @@ type PlayerState struct {
 	Channels []ChannelState
 }
 
+// playerNote defines a note pitch as octave*12+semitone
+// There are 12 semitones in an octave. This encoding is very similar to how
+// MIDI defines pitch values.
+type playerNote int
+
+// String returns the note pitch in name-octave form, e.g. C-4, A#2.
+// Returns three spaces if the note is not recognized.
+func (note playerNote) String() string {
+	if note == 0 {
+		return "   "
+	}
+
+	return fmt.Sprintf("%s%d", notes[note%12], note/12-1)
+}
+
 // Internal representation of a pattern note
 type note struct {
 	Sample int
-	Period int
+	Pitch  playerNote
 	Volume int // Unused by MOD files, FF=no value set, ignore
 	Effect byte
 	Param  byte
@@ -128,8 +143,7 @@ type channel struct {
 	// This is here only for State().
 }
 
-// Song represents a MOD file
-// Will need revising if S3M support is added
+// Song represents a MOD or S3M file
 type Song struct {
 	Title    string
 	Channels int
@@ -290,7 +304,7 @@ func (p *Player) State() PlayerState {
 		patnote := &p.Song.patterns[pattern][rowDataIdx]
 
 		note := &state.Notes[i]
-		note.Note = noteStr(patnote.Period)
+		note.Note = patnote.Pitch.String()
 		note.Instrument = patnote.Sample
 		note.Effect = int(patnote.Effect)
 		note.Param = int(patnote.Param)
@@ -356,7 +370,7 @@ func (p *Player) NoteDataFor(order, row int) []ChannelNoteData {
 		patnote := &p.Song.patterns[pattern][rowDataIdx]
 
 		note := &nd[i]
-		note.Note = noteStr(patnote.Period)
+		note.Note = patnote.Pitch.String()
 		note.Instrument = patnote.Sample
 		note.Effect = int(patnote.Effect)
 		note.Param = int(patnote.Param)
@@ -478,7 +492,7 @@ func (p *Player) sequenceTick() bool {
 			channel.effectCounter = 0
 			patnote := &p.Song.patterns[pattern][rowDataIdx]
 			sampNum := patnote.Sample
-			period := patnote.Period
+			period := patnote.Pitch
 			effect := byte(patnote.Effect)
 			param := byte(patnote.Param)
 
@@ -800,16 +814,6 @@ func initNotePattern(nch int) []note {
 	return notes
 }
 
-// Compute the string representation of a note ('C-4', 'F#3', etc). Returns a
-// string of three spaces if the note is unrecognized.
-func noteStr(note int) string {
-	if note == 0 {
-		return "   "
-	}
-
-	return fmt.Sprintf("%s%d", notes[note%12], note/12-1)
-}
-
 //lint:ignore U1000 Keeping this around for research
 func periodFromS3MNoteOld(note byte) int {
 	s3mnote := note & 0xF
@@ -820,7 +824,7 @@ func periodFromS3MNoteOld(note byte) int {
 
 // Converts an player internal note representation into an Amiga MOD periods
 // This code is a complete lift from libxmp.
-func periodFromPlayerNote(note int) int {
+func periodFromPlayerNote(note playerNote) int {
 	return int(periodBase / math.Pow(2, float64(note)/12.0))
 }
 

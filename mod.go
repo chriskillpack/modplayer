@@ -90,7 +90,6 @@ func NewMODSongFromBytes(songBytes []byte) (*Song, error) {
 			// row := p / song.Channels
 			// ch := p % song.Channels
 
-			n.Period = periodToPlayerNote(n.Period)
 			if n.Effect == effectSetVolume {
 				n.Volume = int(n.Param)
 			} else {
@@ -168,20 +167,24 @@ func readMODSampleInfo(r *bytes.Reader) (*Sample, error) {
 }
 
 func noteFromMODbytes(nb []byte) note {
+	period := int(int(nb[0]&0xF)<<8 + int(nb[1])) // This is an Amiga MOD period
+
 	return note{
 		Sample: int(nb[0]&0xF0 + nb[2]>>4),
-		Period: int(int(nb[0]&0xF)<<8 + int(nb[1])),
+		Pitch:  periodToPlayerNote(period),
 		Effect: nb[2] & 0xF,
 		Param:  nb[3],
 	}
 }
 
-const periodBase = 13696                           // the amiga MOD period value for C-(-1), it's -1 in the octave numbering system we use
-const ln2 = 0.693147180559945309417232121458176568 // ln(2)
+const (
+	periodBase = 13696                                  // the amiga MOD period value for C-(-1), it's -1 in the octave numbering system we use
+	ln2        = 0.693147180559945309417232121458176568 // ln(2)
+)
 
 // Convert an Amiga MOD period value to the octave*12+note format used internally
 // in the player. This code is a complete lift from libxmp.
-func periodToPlayerNote(period int) int {
+func periodToPlayerNote(period int) playerNote {
 	if period <= 0 {
 		return 0
 	}
@@ -191,5 +194,5 @@ func periodToPlayerNote(period int) int {
 
 	// libxmp added 1 to the return value but then took it off somewhere else in
 	// the player so we skip that for now.
-	return int(math.Floor(calc + 0.5))
+	return playerNote(math.Floor(calc + 0.5))
 }

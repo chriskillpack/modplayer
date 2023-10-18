@@ -219,7 +219,7 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 				packedLen -= 2
 
 				// Convert the S3M nibble note format into the internal player octave*12+note (but shifted up one octave)
-				no.Period = 12 + 12*int(noter>>4) + int(noter&0xF)
+				no.Pitch = playerNote(12 + 12*int(noter>>4) + int(noter&0xF))
 				no.Sample = int(intr)
 			}
 

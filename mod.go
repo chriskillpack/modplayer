@@ -182,17 +182,29 @@ const (
 	ln2        = 0.693147180559945309417232121458176568 // ln(2)
 )
 
-// Convert an Amiga MOD period value to the octave*12+note format used internally
-// in the player. This code is a complete lift from libxmp.
+// Convert an Amiga MOD period value to the octave*12+note format used
+// internally in the player. This code is a complete lift from libxmp.
 func periodToPlayerNote(period int) playerNote {
 	if period <= 0 {
 		return 0
 	}
 
-	// TODO: explain this calculation
+	// Some music theory - A4 is 440Hz, A5 is 880Hz and A3 is 220Hz. Each octave
+	// is a power of 2 apart. An octave consists of 12 semitones, and each
+	// semitone is separated by a gap of 2^1/12 (≅1.0595). A4=440Hz,
+	// A#4=466Hz (440*1.0595), B4=493Hz (466*1.0595).
+	// MOD format - ProTracker MOD format uses period values that it divides a
+	// constant by to compute the instrument sample playback speed. The period
+	// value for A4 is 254, A#4=240, A3=508 and A5=127. You can see that these
+	// same relationships from musical theory hold.
+	//
+	// With these properties we can derive an equation that converts the MOD
+	// periods to what (I think) Trackers call "linear" notes (technically they
+	// are only linear wrt to the exponent), e.g. 440*2^(1+1/12) = A#5 and
+	// 440*2^(-1/12)=G#4.
 	calc := 12.0 * math.Log(float64(periodBase)/float64(period)) / ln2
 
 	// libxmp added 1 to the return value but then took it off somewhere else in
-	// the player so we skip that for now.
+	// the player so we drop that for now.
 	return playerNote(math.Floor(calc + 0.5))
 }

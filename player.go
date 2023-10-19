@@ -822,9 +822,10 @@ func periodFromS3MNoteOld(note byte) int {
 	return s3mperiod
 }
 
-// Converts an player internal note representation into an Amiga MOD periods
+// Converts an player internal note representation into an Amiga MOD period.
 // This code is a complete lift from libxmp.
 func periodFromPlayerNote(note playerNote) int {
+	// This formula is the inverse of the formula in periodToPlayerNote().
 	return int(periodBase / math.Pow(2, float64(note)/12.0))
 }
 

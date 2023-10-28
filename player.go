@@ -65,13 +65,14 @@ type Player struct {
 type ChannelNoteData struct {
 	Note       string // 'A-4', 'C#3', ...
 	Instrument int    // -1 if no instrument
+	Volume     int    // 0xFF = not set ignore
 	Effect     int
 	Param      int
 }
 
 // String returns a formatted string of the note data
 func (c *ChannelNoteData) String() string {
-	return fmt.Sprintf("%s %2X %X%02X", c.Note, c.Instrument, c.Effect, c.Param)
+	return fmt.Sprintf("%s %2X %2X %X%02X", c.Note, c.Instrument, c.Volume, c.Effect, c.Param)
 }
 
 // ChannelState holds the current state of a channel
@@ -306,6 +307,7 @@ func (p *Player) State() PlayerState {
 		note := &state.Notes[i]
 		note.Note = patnote.Pitch.String()
 		note.Instrument = patnote.Sample
+		note.Volume = patnote.Volume
 		note.Effect = int(patnote.Effect)
 		note.Param = int(patnote.Param)
 
@@ -372,6 +374,7 @@ func (p *Player) NoteDataFor(order, row int) []ChannelNoteData {
 		note := &nd[i]
 		note.Note = patnote.Pitch.String()
 		note.Instrument = patnote.Sample
+		note.Volume = patnote.Volume
 		note.Effect = int(patnote.Effect)
 		note.Param = int(patnote.Param)
 

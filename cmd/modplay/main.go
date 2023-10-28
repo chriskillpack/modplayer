@@ -119,6 +119,7 @@ func main() {
 	magenta := color.New(color.FgMagenta).SprintfFunc()
 	yellow := color.New(color.FgYellow).SprintfFunc()
 	blue := color.New(color.FgHiBlue).SprintFunc()
+	green := color.New(color.FgGreen).SprintfFunc()
 
 	// Print out some player preceeding 4 rows, current row and upcoming 4 rows
 	// <title> row 1A/3F pat 0A/73 speed 6 bpm 125
@@ -182,7 +183,14 @@ func main() {
 			// Print out the first 4 channels of note data
 			for ni, n := range nd {
 				if ni < 4 {
-					fmt.Print(white(n.Note), " ", cyan("%2X", n.Instrument), " ", magenta("%X", n.Effect), yellow("%02X", n.Param))
+					fmt.Print(white(n.Note), " ", cyan("%2X", n.Instrument), " ")
+					if n.Volume != 0xFF {
+						fmt.Print(green("%02X", n.Volume))
+					} else {
+						fmt.Print(green(".."))
+					}
+					fmt.Print(" ", magenta("%X", n.Effect), yellow("%02X", n.Param))
+
 					if ni < 3 {
 						fmt.Print("|")
 					}

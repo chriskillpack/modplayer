@@ -119,11 +119,11 @@ type channel struct {
 	sample         int // sample that is being played (or -1 if no sample)
 	sampleToPlay   int // sample _to be played_, used for Note Delay effect
 	period         int
+	c4speed        int // the c4speed of the sample
 	portaPeriod    int // Portamento destination as a period
 	portaSpeed     int
 	volume         int
 	pan            int // Pan position, 0=Full Left, 127=Full Right
-	fineTune       int
 	samplePosition uint
 
 	tremoloDepth  int
@@ -160,7 +160,6 @@ type Song struct {
 type Sample struct {
 	Name      string
 	Length    int
-	FineTune  int
 	Volume    int
 	LoopStart int
 	LoopLen   int
@@ -190,16 +189,6 @@ var (
 	s3mPeriodTable = []int{
 		// C-?, C#?, D-?, ..., B-?
 		1712, 1616, 1524, 1440, 1356, 1280, 1208, 1140, 1076, 1016, 960, 907,
-	}
-
-	// Fine tuning values from Micromod. Fine tuning goes from -8
-	// to +7 with 0 (no fine tuning) in the middle at index 8. The
-	// values are .12 fixed point and used to scale the note period.
-	// A fine tuning value of -8 is equal to the next lower note.
-	//lint:ignore U1000 This will be reused later
-	fineTuning = []int{
-		4340, 4308, 4277, 4247, 4216, 4186, 4156, 4126,
-		4096, 4067, 4037, 4008, 3979, 3951, 3922, 3894,
 	}
 
 	// ProTracker sine table. 32-elements representing the first half of the sine
@@ -495,7 +484,7 @@ func (p *Player) sequenceTick() bool {
 			channel.effectCounter = 0
 			patnote := &p.Song.patterns[pattern][rowDataIdx]
 			sampNum := patnote.Sample
-			period := patnote.Pitch
+			pitch := patnote.Pitch
 			effect := byte(patnote.Effect)
 			param := byte(patnote.Param)
 
@@ -507,15 +496,16 @@ func (p *Player) sequenceTick() bool {
 				smp := &p.Song.Samples[sampNum-1]
 
 				channel.volume = smp.Volume
-				channel.fineTune = smp.FineTune
+				// channel.fineTune = smp.FineTune
+				channel.c4speed = smp.C4Speed
 				channel.sampleToPlay = sampNum - 1
 				channel.samplePosition = 0
 			}
 
-			// If there is a period...
-			if period > 0 {
+			// If there is a note pitch...
+			if pitch > 0 {
 				// ... save it away as the porta to note destination
-				channel.portaPeriod = periodFromPlayerNote(period)
+				channel.portaPeriod = periodFromPlayerNote(pitch, channel.c4speed)
 
 				// ... restart the sample if effect isn't 3, 5 or 0xEDx
 				if effect != effectPortaToNote && effect != effectPortaToNoteVolSlide &&
@@ -526,8 +516,8 @@ func (p *Player) sequenceTick() bool {
 					// channel.period = (period * fineTuning[channel.fineTune]) >> 12
 
 					// convert the S3M note to a period
-					if period < 254 {
-						channel.period = periodFromPlayerNote(period)
+					if pitch < 254 {
+						channel.period = periodFromPlayerNote(pitch, channel.c4speed)
 					}
 
 					// ... assign the new instrument if one was provided
@@ -826,10 +816,12 @@ func periodFromS3MNoteOld(note byte) int {
 }
 
 // Converts an player internal note representation into an Amiga MOD period.
-// This code is a complete lift from libxmp.
-func periodFromPlayerNote(note playerNote) int {
+// This code is inspired by libxmp.
+func periodFromPlayerNote(note playerNote, c4speed int) int {
 	// This formula is the inverse of the formula in periodToPlayerNote().
-	return int(periodBase / math.Pow(2, float64(note)/12.0))
+	period := periodBase / math.Pow(2, float64(note)/12.0)
+	period = (8363 * period) / float64(c4speed) // Perform finetuning
+	return int(period)
 }
 
 // Useful function to dump contents of the audio buffer

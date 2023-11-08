@@ -8,6 +8,14 @@ import (
 	"strings"
 )
 
+// This is the equivalent S3M C4Speed for the MOD finetune value
+// This should be indexed by the byte value in the MOD file
+// Taken from fs3mdoc.txt
+var fineTuning = []int{
+	8363, 8413, 8463, 8529, 8581, 8651, 8723, 8757,
+	7895, 7941, 7985, 8046, 8107, 8169, 8232, 8280,
+}
+
 // NewMODSongFromBytes parses a MOD file into a Song.
 //
 // This means reading out instrument data, sample data, order
@@ -138,7 +146,7 @@ func readMODSampleInfo(r *bytes.Reader) (*Sample, error) {
 	smp := &Sample{
 		Name:      strings.TrimRight(string(data.Name[:]), "\x00"),
 		Length:    int(data.Length) * 2,
-		FineTune:  int(data.FineTune&7) - int(data.FineTune&8) + 8,
+		C4Speed:   fineTuning[data.FineTune],
 		Volume:    int(data.Volume),
 		LoopStart: int(data.LoopStart) * 2,
 		LoopLen:   int(data.LoopLen) * 2,

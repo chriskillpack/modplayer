@@ -27,6 +27,8 @@ const (
 	effectExtended            = 0xE
 	effectSetSpeed            = 0xF
 
+	effectPatternLoop = 0x20
+
 	// Extended effects (Exy), x = effect, y effect param
 	effectExtendedNoteRetrig       = 0x9
 	effectExtendedFineVolSlideUp   = 0xA
@@ -58,6 +60,7 @@ type Player struct {
 	// its bit to 1.
 	Mute uint
 
+	loop     []loopinfo
 	channels []channel
 }
 
@@ -142,6 +145,11 @@ type channel struct {
 
 	trigOrder, trigRow int // The order and row the channel was triggered on
 	// This is here only for State().
+}
+
+type loopinfo struct {
+	start int
+	count int
 }
 
 // Song represents a MOD or S3M file
@@ -250,6 +258,7 @@ func NewPlayer(song *Song, samplingFrequency uint) (*Player, error) {
 		Speed:             6,
 	}
 
+	player.loop = make([]loopinfo, song.Channels)
 	player.channels = make([]channel, song.Channels)
 
 	player.reset()
@@ -473,6 +482,8 @@ func (p *Player) sequenceTick() bool {
 		pattern := int(p.Song.Orders[p.order])
 		rowDataIdx := p.rowDataIndex()
 
+		loopChannel := -1 // Which channel index has an active loop, -1=no channel
+
 		for i := 0; i < p.Song.Channels; i++ {
 			channel := &p.channels[i]
 
@@ -593,6 +604,22 @@ func (p *Player) sequenceTick() bool {
 				if p.row >= 64 {
 					p.row = -1
 				}
+			case effectPatternLoop:
+				if param == 0 {
+					p.loop[i].start = p.row
+				} else {
+					if p.loop[i].count > 0 {
+						// There is already a count set
+						p.loop[i].count = p.loop[i].count - 1
+						if p.loop[i].count > 0 {
+							// Have a row to jump to
+							loopChannel = i
+						}
+					} else {
+						p.loop[i].count = int(param)
+						loopChannel = i
+					}
+				}
 			case effectExtended:
 				switch param >> 4 {
 				case effectExtendedFineVolSlideUp:
@@ -616,6 +643,10 @@ func (p *Player) sequenceTick() bool {
 				}
 			}
 			rowDataIdx++
+		}
+
+		if loopChannel >= 0 {
+			p.row = p.loop[loopChannel].start - 1 // -1 for the ++ below
 		}
 
 		p.row++

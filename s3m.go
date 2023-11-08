@@ -10,9 +10,11 @@ import (
 )
 
 const (
-	s3mfx_SetSpeed     = 0xA
-	s3mfx_PatternJump  = 0xB
-	s3mfx_PatternBreak = 0xC
+	s3mfx_SetSpeed       = 0x1
+	s3mfx_PatternJump    = 0x2
+	s3mfx_PatternBreak   = 0x3
+	s3mfx_TonePortamento = 0x7
+	s3mfx_Special        = 0x13
 )
 
 var ErrInvalidS3M = errors.New("invalid S3M file")
@@ -256,6 +258,13 @@ func convertS3MEffect(efc, parm byte) (effect byte, param byte) {
 		effect = effectJumpToPattern
 	case s3mfx_PatternBreak:
 		effect = effectPatternBrk
+	case s3mfx_TonePortamento:
+		effect = effectPortaToNote
+	case s3mfx_Special:
+		if (parm >> 4) == 0xB {
+			effect = effectPatternLoop
+			param = param & 0xF
+		}
 	default:
 		// no-op
 	}

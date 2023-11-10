@@ -718,7 +718,12 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 			continue
 		}
 
-		sampEnd := uint(sample.Length << 16)
+		var sampEnd uint
+		if sample.LoopLen > 0 {
+			sampEnd = uint(sample.LoopStart+sample.LoopLen) << 16
+		} else {
+			sampEnd = uint(sample.Length) << 16
+		}
 
 		cur := offset * 2
 		end := (offset + nSamples) * 2

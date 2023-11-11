@@ -576,6 +576,7 @@ func (p *Player) sequenceTick() bool {
 					p.tick = p.Speed
 				}
 			case effectSampleOffset:
+				// TODO: clamp samplePosition to end of sample
 				channel.samplePosition = uint(param) << 24
 			// case effectSetVolume:
 			// 	channel.volume = int(param)

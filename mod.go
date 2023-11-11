@@ -30,7 +30,7 @@ func NewMODSongFromBytes(songBytes []byte) (*Song, error) {
 	buf := bytes.NewReader(songBytes)
 	y := make([]byte, 20)
 	buf.Read(y)
-	song.Title = strings.TrimRight(string(y), "\x00")
+	song.Title = cleanName(string(y))
 
 	// Read sample information (sample data is read later)
 	for i := 0; i < 31; i++ {
@@ -144,7 +144,7 @@ func readMODSampleInfo(r *bytes.Reader) (*Sample, error) {
 	}
 
 	smp := &Sample{
-		Name:      strings.TrimRight(string(data.Name[:]), "\x00"),
+		Name:      cleanName(string(data.Name[:])),
 		Length:    int(data.Length) * 2,
 		C4Speed:   fineTuning[data.FineTune],
 		Volume:    int(data.Volume),
@@ -183,6 +183,16 @@ func noteFromMODbytes(nb []byte) note {
 		Effect: nb[2] & 0xF,
 		Param:  nb[3],
 	}
+}
+
+// Strips trailing 0x00 bytes and replaces any non ASCII character with a space
+func cleanName(in string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 32 || r > 127 {
+			return ' '
+		}
+		return r
+	}, strings.TrimRight(in, "\x00"))
 }
 
 const (

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 )
 
 const (
@@ -14,7 +13,9 @@ const (
 	s3mfx_PatternJump    = 0x2
 	s3mfx_PatternBreak   = 0x3
 	s3mfx_TonePortamento = 0x7
+	s3mfx_SampleOffset   = 0xF
 	s3mfx_Special        = 0x13
+	s3mfx_SetTempo       = 0x14
 )
 
 var ErrInvalidS3M = errors.New("invalid S3M file")
@@ -31,7 +32,7 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 	if _, err := buf.Read(y); err != nil {
 		return nil, err
 	}
-	song.Title = strings.TrimRight(string(y), "\x00")
+	song.Title = cleanName(string(y))
 
 	header := struct {
 		Pad             byte
@@ -133,7 +134,7 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 			Length:    int(instHeader.SampleLength),
 			LoopStart: int(instHeader.LoopBegin),
 			LoopLen:   int(instHeader.LoopEnd) - int(instHeader.LoopBegin),
-			Name:      strings.TrimRight(string(instHeader.Name[:]), "\x00"),
+			Name:      cleanName(string(instHeader.Name[:])),
 			C4Speed:   int(instHeader.C2Speed),
 			Volume:    int(instHeader.Volume),
 		}
@@ -253,6 +254,8 @@ func convertS3MEffect(efc, parm byte) (effect byte, param byte) {
 
 	switch efc {
 	case s3mfx_SetSpeed:
+		// TODO: SetSpeed can take speed values above 0x20 which
+		// effectSetSpeed currently interprets as setting tempo
 		effect = effectSetSpeed
 	case s3mfx_PatternJump:
 		effect = effectJumpToPattern
@@ -260,13 +263,23 @@ func convertS3MEffect(efc, parm byte) (effect byte, param byte) {
 		effect = effectPatternBrk
 	case s3mfx_TonePortamento:
 		effect = effectPortaToNote
+	case s3mfx_SampleOffset:
+		effect = effectSampleOffset
 	case s3mfx_Special:
 		if (parm >> 4) == 0xB {
 			effect = effectPatternLoop
 			param = param & 0xF
+		} else {
+			// Unhandled effects are disabled for now
+			effect = 0
+			param = 0
 		}
+	case s3mfx_SetTempo:
+		effect = effectSetSpeed
 	default:
-		// no-op
+		// disable the effect for now
+		effect = 0
+		param = 0
 	}
 
 	return

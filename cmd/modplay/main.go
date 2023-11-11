@@ -145,7 +145,7 @@ func main() {
 		if len(song.Title) > 0 {
 			fmt.Print(song.Title + " ")
 		}
-		fmt.Printf("%s %02X/3F %s %02X/%02X %s %d %s %d\n", blue("row"), state.Row, blue("pat"), state.Order, len(song.Orders), blue("speed"), player.Speed, blue("bpm"), player.Tempo)
+		fmt.Printf("%s %02X/3F %s %02X/%02X %s %02d %s %3d\n", blue("row"), state.Row, blue("pat"), state.Order, len(song.Orders), blue("speed"), player.Speed, blue("bpm"), player.Tempo)
 
 		// Print out some channel info
 		ncl := len(state.Channels) / 2
@@ -156,8 +156,8 @@ func main() {
 			if si != -1 {
 				outs += song.Samples[si].Name
 			}
-			if len(outs) < 26 {
-				outs = fmt.Sprintf("%-26s", outs)
+			if len(outs) < 32 {
+				outs = fmt.Sprintf("%-32s", outs)
 			}
 			fmt.Print(outs)
 			if i&1 == 1 {

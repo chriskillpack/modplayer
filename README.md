@@ -1,16 +1,16 @@
-# MOD player
+# MOD and S3M player
 
 _Work in progress_
 
-A Go package to play [MOD](<https://en.wikipedia.org/wiki/MOD_(file_format)>) files.
+A Go package to play [MOD](<https://en.wikipedia.org/wiki/MOD_(file_format)>) and [S3M](https://en.wikipedia.org/wiki/S3M) files.
 
-Back in the mid-90's I was active in the PC demoscene and always relied on other people's MOD player code for the music. I never knew how they worked, so I decided many many years later to sit down and code one.
+Back in the mid-90's I was active in the PC demoscene and always relied on other people's player code for the music. I never knew how they worked, so I decided many many years later to sit down and code one.
 
-Right now only MOD files are supported. I hope to add support for S3M files (ScreamTracker 3) in the future.
+Right now only MOD and S3M files are supported, with S3M support being very incomplete.
 
 # Usage
 
-The package consists of two main parts, a `Song` and a `Player`. The `Song` struct represents a parsed MOD file, use `NewSongFromBytes` to parse a byte slice holding a MOD file into a `Song`. With a `Song` you can create a `Player` instance. Then call `GenerateAudio` on the `Player` instance to generate raw audio output which you send to an audio device (the `modplay` command) or serialize to disk (the `modwav` command).
+The package consists of two main parts, a `Song` and a `Player`. The `Song` struct represents a parsed MOD or S3M file, use `NewMODSongFromBytes` or `NewS3MSongFromBytes` to parse a byte slice holding a music file into a `Song`. Use the correct function for the file type. With a `Song` you can create a `Player` instance. Then call `GenerateAudio` on the `Player` instance to generate raw audio output which you send to an audio device (the `modplay` command) or serialize to disk (the `modwav` command).
 
 # Build
 
@@ -33,9 +33,9 @@ modplay awesome.mod
 
 ![Screenshot of modplay](/docs/modplay.png)
 
-# MOD files
+# MOD and S3M files
 
-You can find MOD files at [The Mod Archive](https://modarchive.org/) but I included a couple in the `mods` folder that I used to test playback:
+You can find tracker files at [The Mod Archive](https://modarchive.org/) but I included a small selection in the `mods` folder that are used to test playback:
 
 `space_debris.mod` - one of the most popular MODs on The Mod Archive\
 `dope.mod` - From the PC demo [DOPE](http://www.pouet.net/prod.php?which=37) by Complex\
@@ -46,7 +46,7 @@ You can find MOD files at [The Mod Archive](https://modarchive.org/) but I inclu
 
 FireLight's [MOD](docs/fmoddoc.txt) and [S3M](docs/fs3mdoc.txt) format documents were the most useful documents. I converted the box drawing characters from PC code page 437 in the original docs into Unicode. The official ScreamTracker 3 [TECH.DOC](docs/s3m_tech.doc) was also handy.
 
-I used [micromod](https://github.com/martincameron/micromod) and [MilkyTracker](https://github.com/milkytracker/MilkyTracker) as implementation guides.
+I used [micromod](https://github.com/martincameron/micromod), [MilkyTracker](https://github.com/milkytracker/MilkyTracker) and [libxmp](https://github.com/libxmp/libxmp) as implementation guides.
 
 # Compiling PortAudio
 
@@ -66,5 +66,6 @@ sudo cp $PORTAUDIO/lib/.libs/libportaudio.2.dylib /usr/local/lib
 
 # TODO
 
-- S3M support
-- Fix clicking on looping samples (e.g. in Dope)
+- Finish S3M support
+- Add clamping to mixer to prevent clipping
+- Add sample interpolation into mixer for improved sound quality

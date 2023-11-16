@@ -11,6 +11,7 @@ const (
 	retracePALHz = 7093789.2 // Amiga PAL vertical retrace timing
 
 	rowsPerPattern = 64
+	mixBufferLen   = 8192 // samples per channel
 
 	// MOD note effects
 	effectPortamentoUp        = 0x1
@@ -62,6 +63,10 @@ type Player struct {
 
 	loop     []loopinfo
 	channels []channel
+
+	// Internal buffer the audio is mixed into. This is done to allow loud
+	// sounds without clipping.
+	mixbuffer []int
 }
 
 // ChannelNoteData represents the note data for a channel
@@ -260,6 +265,7 @@ func NewPlayer(song *Song, samplingFrequency uint) (*Player, error) {
 
 	player.loop = make([]loopinfo, song.Channels)
 	player.channels = make([]channel, song.Channels)
+	player.mixbuffer = make([]int, mixBufferLen*2)
 
 	player.reset()
 	player.Start()
@@ -671,16 +677,7 @@ func (p *Player) sequenceTick() bool {
 	return finished
 }
 
-func (p *Player) mixChannels(out []int16, nSamples, offset int) {
-	// Zero out the portion of out that will be written to.
-	// The compiler will identify the range loop form and replace with a
-	// runtime.memclrNoHeapPointers call which has architecture specific
-	// optimizations.
-	o := out[offset*2 : (offset+nSamples)*2]
-	for i := range o {
-		o[i] = 0
-	}
-
+func (p *Player) mixChannels(nSamples, offset int) {
 	for ci := range p.channels {
 		channel := &p.channels[ci]
 
@@ -751,7 +748,7 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 				}
 				for pos < epos {
 					sd := int(sample.Data[pos>>16])
-					out[cur] += int16(sd * vol)
+					p.mixbuffer[cur] += sd * vol
 
 					pos += dr
 					cur += 2
@@ -762,11 +759,11 @@ func (p *Player) mixChannels(out []int16, nSamples, offset int) {
 				}
 			} else {
 				for pos < epos {
-					// WARNING: no clamping when mixing, this seems to be the case in other players I looked at.
-					// I think the expectation is that the musician not play samples too loudly.
+					// WARNING: no clamping when mixing into mixbuffer. Clamping will be applied when the final audio is returned
+					// to the caller.
 					sd := int(sample.Data[pos>>16])
-					out[cur+0] += int16(sd * lvol)
-					out[cur+1] += int16(sd * rvol)
+					p.mixbuffer[cur+0] += sd * lvol
+					p.mixbuffer[cur+1] += sd * rvol
 
 					pos += dr
 					cur += 2
@@ -796,9 +793,22 @@ func (p *Player) GenerateAudio(out []int16) int {
 		return 0
 	}
 
+	if len(out) > len(p.mixbuffer) {
+		// TODO - better handling of this error condition, e.g. resizing the mix buffer
+		panic(fmt.Sprintf("Mixbuffer too small %d wanted %d size", len(out), len(p.mixbuffer)))
+	}
+
 	count := len(out) / 2 // L&R samples are interleaved, so out length 2 is asking for one stereo sample
 	offset := 0
 	generated := 0
+
+	// Zero out the portion of the mixbuffer that will be written to.
+	// The compiler will identify the range loop form and replace with a
+	// runtime.memclrNoHeapPointers call which has architecture specific
+	// optimizations.
+	for i := range p.mixbuffer[0:len(out)] {
+		p.mixbuffer[i] = 0
+	}
 
 	for count > 0 {
 		remain := p.samplesPerTick - p.tickSamplePos
@@ -806,7 +816,7 @@ func (p *Player) GenerateAudio(out []int16) int {
 			remain = count
 		}
 
-		p.mixChannels(out, remain, offset)
+		p.mixChannels(remain, offset)
 		offset += remain
 		generated += remain
 
@@ -819,7 +829,22 @@ func (p *Player) GenerateAudio(out []int16) int {
 		}
 		count -= remain
 	}
+
+	// Downsample the mix buffer into the output buffer
+	p.downsample(out, generated*2)
+
 	return generated
+}
+
+func (p *Player) downsample(out []int16, generated int) {
+	for i, s := range p.mixbuffer[0:generated] {
+		if s > 32767 {
+			s = 32767
+		} else if s < -32768 {
+			s = -32768
+		}
+		out[i] = int16(s)
+	}
 }
 
 // There is a race condition where the row counter can be set to -1 and then

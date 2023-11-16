@@ -79,7 +79,7 @@ type CombFixed struct {
 	delayOffset, delayPos int
 	bufferSize            int
 	decay                 float32
-	audio                 []int16
+	audio                 []int32
 }
 
 // NewCombFixed creates a new Comb filter. The internal buffer is sized
@@ -88,7 +88,7 @@ type CombFixed struct {
 func NewCombFixed(addSize int, decay float32, delayMs, sampleRate int) *CombFixed {
 	delayOffset := (2 * delayMs * sampleRate) / 1000
 	c := &CombFixed{
-		audio:       make([]int16, (delayOffset+addSize)*2),
+		audio:       make([]int32, (delayOffset+addSize)*2),
 		delayOffset: delayOffset,
 		bufferSize:  (delayOffset + addSize) * 2,
 		decay:       decay,
@@ -115,11 +115,11 @@ func (c *CombFixed) InputSamples(in []int16) int {
 		// Yes, do it in two parts (n1 to end of buffer, n2 the remainder)
 		n1 := c.bufferSize - c.writePos
 		n2 := n - n1
-		copy(c.audio[c.writePos:c.writePos+n1], in[:n1])
-		copy(c.audio[:n2], in[n1:n1+n2])
+		copyUpsample(c.audio[c.writePos:c.writePos+n1], in[:n1])
+		copyUpsample(c.audio[:n2], in[n1:n1+n2])
 		c.writePos = n2
 	} else {
-		copy(c.audio[c.writePos:c.writePos+n], in[:n])
+		copyUpsample(c.audio[c.writePos:c.writePos+n], in[:n])
 		c.writePos += n
 	}
 	c.n += n
@@ -155,7 +155,7 @@ func (c *CombFixed) applyReverb(ns, off int) {
 		n1 := c.bufferSize - c.delayPos
 		n2 := ns - n1
 		for i := 0; i < n1; i++ {
-			c.audio[i+off] += int16(float32(c.audio[i+c.delayPos]) * c.decay)
+			c.audio[i+off] += int32(float32(c.audio[i+c.delayPos]) * c.decay)
 		}
 
 		// First part done, setup second part
@@ -165,7 +165,7 @@ func (c *CombFixed) applyReverb(ns, off int) {
 	}
 
 	for i := 0; i < ns; i++ {
-		c.audio[i+off] += int16(float32(c.audio[i+c.delayPos]) * c.decay)
+		c.audio[i+off] += int32(float32(c.audio[i+c.delayPos]) * c.decay)
 	}
 	c.delayPos += ns
 }
@@ -184,16 +184,37 @@ func (c *CombFixed) GetAudio(out []int16) int {
 	if c.readPos+n > c.bufferSize {
 		n1 := c.bufferSize - c.readPos
 		n2 := n - n1
-		copy(out[:n1], c.audio[c.readPos:c.readPos+n1])
-		copy(out[n1:n], c.audio[:n2])
+		copyDownsample(out[:n1], c.audio[c.readPos:c.readPos+n1])
+		copyDownsample(out[n1:n], c.audio[:n2])
 
 		c.readPos = n2
 	} else {
-		copy(out[:n], c.audio[c.readPos:c.readPos+n])
+		copyDownsample(out[:n], c.audio[c.readPos:c.readPos+n])
 
 		c.readPos += n
 	}
 	c.n -= n
 
 	return n
+}
+
+// Copies a slice of audio data and "upsamples" it to 32bit (just a cast, no
+// value changes).
+func copyUpsample(dst []int32, src []int16) {
+	for i, s := range src {
+		dst[i] = int32(s)
+	}
+}
+
+// Copies a slice from the audio buffer to the output, clamping values to
+// 16-bit signed range.
+func copyDownsample(dst []int16, src []int32) {
+	for i, s := range src {
+		if s > 32767 {
+			s = 32767
+		} else if s < -32768 {
+			s = -32768
+		}
+		dst[i] = int16(s)
+	}
 }

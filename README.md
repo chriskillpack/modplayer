@@ -67,5 +67,4 @@ sudo cp $PORTAUDIO/lib/.libs/libportaudio.2.dylib /usr/local/lib
 # TODO
 
 - Finish S3M support
-- Add clamping to mixer to prevent clipping
 - Add sample interpolation into mixer for improved sound quality

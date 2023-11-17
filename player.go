@@ -20,6 +20,7 @@ const (
 	effectVibrato             = 0x4 // TODO: Complete
 	effectPortaToNoteVolSlide = 0x5
 	effectTremolo             = 0x7 // TODO: Complete
+	effectSetPanPosition      = 0x8
 	effectSampleOffset        = 0x9
 	effectVolumeSlide         = 0xA
 	effectJumpToPattern       = 0xB
@@ -167,6 +168,7 @@ type Song struct {
 
 	Samples  []Sample
 	patterns [][]note
+	pan      [32]byte
 }
 
 // Sample holds information about an instrument sample including sample data
@@ -406,13 +408,7 @@ func (p *Player) reset() {
 		channel.vibratoSpeed = 0
 		channel.vibratoPhase = 0
 		channel.vibratoAdjust = 0
-
-		switch i & 3 {
-		case 0, 3:
-			channel.pan = 0 // left
-		case 1, 2:
-			channel.pan = 127 // right
-		}
+		channel.pan = int(p.Song.pan[i])
 	}
 }
 
@@ -581,6 +577,12 @@ func (p *Player) sequenceTick() bool {
 					p.Speed = int(param)
 					p.tick = p.Speed
 				}
+			case effectSetPanPosition:
+				// TODO - support surround which is 0xA4?
+				if param > 0x80 {
+					param = 0x80
+				}
+				channel.pan = int(param)
 			case effectSampleOffset:
 				// TODO: clamp samplePosition to end of sample
 				channel.samplePosition = uint(param) << 24

@@ -93,6 +93,37 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 		return nil, err
 	}
 
+	// Configure the channel default pan positions
+	stereo := (header.MastVolume & 128) == 128
+	for i := 0; i < 32; i++ {
+		if stereo {
+			// In stereo, first 8 channels are left, next 8 are right. Last 16 are center
+			if i < 8 {
+				song.pan[i] = 3 << 3
+			} else if i < 16 {
+				song.pan[i] = 0xC << 3
+			} else {
+				song.pan[i] = 8 << 3 // "AdLib" channel, center pan
+			}
+		} else {
+			song.pan[i] = 8 << 3 // mono song, pan position in the center
+		}
+	}
+
+	if header.Panning == 0xFC {
+		// Channel panning positions were provided, read them in
+		var panning [32]byte
+		if _, err := buf.Read(panning[:]); err != nil {
+			return nil, err
+		}
+		for i := 0; i < 32; i++ {
+			if panning[i]&0x20 == 0x20 {
+				// Channel panning value provided use that
+				song.pan[i] = (panning[i] & 0xF) << 3
+			}
+		}
+	}
+
 	// Read in the instrument sample data
 	song.Samples = make([]Sample, int(header.NumInstruments))
 	for i := 0; i < int(header.NumInstruments); i++ {
@@ -266,10 +297,14 @@ func convertS3MEffect(efc, parm byte) (effect byte, param byte) {
 	case s3mfx_SampleOffset:
 		effect = effectSampleOffset
 	case s3mfx_Special:
-		if (parm >> 4) == 0xB {
+		switch parm >> 4 {
+		case 0xB:
 			effect = effectPatternLoop
 			param = param & 0xF
-		} else {
+		case 0x8:
+			effect = effectSetPanPosition
+			param = (param & 0xF) << 3
+		default:
 			// Unhandled effects are disabled for now
 			effect = 0
 			param = 0

@@ -81,6 +81,16 @@ func NewMODSongFromBytes(songBytes []byte) (*Song, error) {
 		return nil, fmt.Errorf("unrecognized MOD format %s", string(x))
 	}
 
+	// Setup panning
+	for i := 0; i < song.Channels; i++ {
+		switch i & 3 {
+		case 0, 3:
+			song.pan[i] = 0 // left
+		case 1, 2:
+			song.pan[i] = 127 // right
+		}
+	}
+
 	const bytesPerChannel = 4
 
 	// Read pattern data

@@ -5,8 +5,6 @@
 // data according to the playback rate. Currently the code just loads in four
 // adjacent samples.
 
-#include <stdio.h>
-#include <string.h>
 #include <arm_neon.h>
 #include "mixer_neon.h"
 

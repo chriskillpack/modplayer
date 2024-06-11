@@ -5,9 +5,15 @@
 
 set -o pipefail
 
-MODS=("space_debris" "dope" "believe")
+SONGS=("space_debris.mod" "dope.mod" "believe.mod" "caero.s3m")
 OUTDIR="golden"
 skipDirty=false
+
+# Strip the extension (.abc) from the input parameter
+strip_extension() {
+  filename="$1"
+  echo "${filename%.*}"
+}
 
 while getopts "d" flag
 do
@@ -34,13 +40,14 @@ if [ ! -d $OUTDIR ]; then
 fi
 
 # For each MOD generate the golden wav
-for mod in "${MODS[@]}"
+for song in "${SONGS[@]}"
 do
-  MOD_IN="./mods/$mod.mod"
-  WAV_OUT="$OUTDIR/${mod}_golden.wav"
+  SONG_NO_EXT=$(strip_extension $song)
+  SONG_FILENAME="mods/$song"
+  WAV_OUT="$OUTDIR/${SONG_NO_EXT}_golden.wav"
 
   echo "Generating $WAV_OUT"
-  go run ./cmd/modwav -reverb none -wav "$WAV_OUT" "$MOD_IN" > /dev/null
+  go run ./cmd/modwav -reverb none -wav "$WAV_OUT" "$SONG_FILENAME" > /dev/null
 
   retVal=$?
   if [ $retVal -ne 0 ]; then

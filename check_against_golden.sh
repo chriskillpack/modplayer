@@ -8,14 +8,23 @@ set -o pipefail
 
 SONGS=("space_debris.mod" "dope.mod" "believe.mod" "caero.s3m")
 GOLDENDIR="golden"
-GREEN_CHECK_MARK="\xe2\x9c\x85"  # UTF-8 encoding of U-2705, for some reason
-                                 # using echo -e "\u2705" is not working.
+GREEN_CHECK_MARK="✅"
+verbose=false
 
 # Strip the extension (.abc) from the input parameter
 strip_extension() {
   filename="$1"
   echo "${filename%.*}"
 }
+
+while getopts "v" flag
+do
+  case "${flag}" in
+    v) verbose=true;;
+    *) echo "usage: $0 [-v]" >&2
+       exit 1 ;;
+  esac
+done
 
 if [ ! -d $GOLDENDIR ];
 then
@@ -24,7 +33,6 @@ then
 fi
 
 TMPDIR=$(mktemp -d)
-
 retVal=$?
 if [ $retVal -ne 0 ]; then
   echo -e "\nCould not create temporary directory"
@@ -35,7 +43,7 @@ missing=false
 
 for song in "${SONGS[@]}"
 do
-  SONG_NO_EXT=$(strip_extension $song)
+  SONG_NO_EXT=$(strip_extension "$song")
   SONG_FILENAME="./mods/$song"
   WAV_OUT="$TMPDIR/$SONG_NO_EXT.wav"
   GOLDEN_FILE="$GOLDENDIR/${SONG_NO_EXT}_golden.wav"
@@ -49,8 +57,11 @@ do
   fi
 
   # Generate the candidate WAV file
-  go run ./cmd/modwav -reverb none -wav "$WAV_OUT" "$SONG_FILENAME" > /dev/null
+  if [ $verbose = true ]; then
+    echo go run ./cmd/modwav -reverb none -wav "$WAV_OUT" "$SONG_FILENAME"
+  fi
 
+  go run ./cmd/modwav -reverb none -wav "$WAV_OUT" "$SONG_FILENAME" > /dev/null
   retVal=$?
   if [ $retVal -ne 0 ]; then
     echo -e "\nFailed to generate $WAV_OUT"
@@ -62,11 +73,11 @@ do
 
   retVal=$?
   if [ $retVal -ne 0 ]; then
-    echo -e "\n!!! $mod does not match golden"
+    echo -e "\n!!! $song does not match golden"
     echo "cmp -l $WAV_OUT $GOLDEN_FILE"
     exit $retVal
   else
-    printf "$GREEN_CHECK_MARK\n" # Print a green check mark and move to next line, see echo -n at top of loop
+    echo $GREEN_CHECK_MARK # Print a green check mark and move to next line, see echo -n at top of loop
   fi
 done
 

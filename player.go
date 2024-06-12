@@ -1009,40 +1009,40 @@ func (p *Player) mixChannels(nSamples, offset int) {
 				epos = sampEnd
 			}
 
+			// Detect if this a 'mono' mix or a stereo mix. A 'mono' mix is one
+			// where the sample is fully panned left or right, a 'stereo' mix
+			// is for any other pan position.
+
 			// lvol rvol | case
 			//   0    0  |  skip, nothing to mix in. already handled above
 			//  127   0  |  mono mix left side
 			//   0   127 |  mono mix right side
 			//   N    N  |  stereo mix
 			if lvol != 0 && rvol == 0 || lvol == 0 && rvol != 0 {
+				// This is a mono mix
+
+				// Is the sample panned fully left or right?
 				if lvol != 0 {
+					// Left
 					vol = lvol
 				} else {
+					// Right
 					vol = rvol
+
+					// Adjust cur to point to the right channel in the stereo
+					// output buffer.
 					cur++
 				}
-				for pos < epos {
-					sd := int(sample.Data[pos>>16])
-					p.mixbuffer[cur] += sd * vol
-
-					pos += dr
-					cur += 2
-				}
-				// Now snap cursor to the correct position
+				pos, cur = mixChannelsMono_Scalar(pos, epos, dr, cur, vol, sample.Data, p.mixbuffer)
 				if rvol != 0 {
 					cur--
 				}
 			} else {
-				for pos < epos {
-					// WARNING: no clamping when mixing into mixbuffer. Clamping will be applied when the final audio is returned
-					// to the caller.
-					sd := int(sample.Data[pos>>16])
-					p.mixbuffer[cur+0] += sd * lvol
-					p.mixbuffer[cur+1] += sd * rvol
+				// This is a stereo mix
 
-					pos += dr
-					cur += 2
-				}
+				// Use the slow scalar stereo mixer path. Later this will be replaced
+				// by a more optimal implemenation on ARM CPUs.
+				pos, cur = mixChannelsStereo_Scalar(pos, epos, dr, cur, lvol, rvol, sample.Data, p.mixbuffer)
 			}
 			if pos >= sampEnd {
 				if sample.LoopLen > 0 {

@@ -1002,10 +1002,18 @@ func (p *Player) mixChannels(nSamples, offset int) {
 		end := (offset + nSamples) * 2
 
 		for cur < end {
-			// Compute the position in the sample by end
-			epos := pos + uint((end-cur)/2)*dr
+			ns := uint((end - cur) / 2)
+
+			// Compute the position in the sample data if the mixer ran for all
+			// ns iterations.
+			epos := pos + ns*dr
+
 			// If the sample ends before the end of this loop iteration only run to that
 			if epos >= sampEnd {
+				fmt.Printf("overshoot pos %d epos %d sampEnd %d ns %d dr %d ", pos, epos, sampEnd, ns, dr)
+				ns -= uint((epos - sampEnd) / dr)
+				fmt.Printf("corrected ns %d\n", ns)
+
 				epos = sampEnd
 			}
 
@@ -1023,17 +1031,17 @@ func (p *Player) mixChannels(nSamples, offset int) {
 
 				// Is the sample panned fully left or right?
 				if lvol != 0 {
-					// Left
+					// Fully Left
 					vol = lvol
 				} else {
-					// Right
+					// Fully Right
 					vol = rvol
 
-					// Adjust cur to point to the right channel in the stereo
+					// Adjust cur to point to the Right channel in the stereo
 					// output buffer.
 					cur++
 				}
-				pos, cur = mixChannelsMono_Scalar(pos, epos, dr, cur, vol, sample.Data, p.mixbuffer)
+				pos, cur = mixChannelsMono(pos, epos, dr, ns, cur, vol, sample.Data, p.mixbuffer)
 				if rvol != 0 {
 					cur--
 				}
@@ -1042,7 +1050,7 @@ func (p *Player) mixChannels(nSamples, offset int) {
 
 				// Use the slow scalar stereo mixer path. Later this will be replaced
 				// by a more optimal implemenation on ARM CPUs.
-				pos, cur = mixChannelsStereo_Scalar(pos, epos, dr, cur, lvol, rvol, sample.Data, p.mixbuffer)
+				pos, cur = mixChannelsStereo(pos, epos, dr, ns, cur, lvol, rvol, sample.Data, p.mixbuffer)
 			}
 			if pos >= sampEnd {
 				if sample.LoopLen > 0 {

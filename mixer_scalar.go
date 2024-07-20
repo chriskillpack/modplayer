@@ -1,5 +1,7 @@
 package modplayer
 
+import "fmt"
+
 // These are scalar mixing routines. In this context scalar means non-SIMD and
 // implemented in Go.
 
@@ -10,19 +12,27 @@ package modplayer
 
 // These functions exist are still used by the NEON path to handle the trailing
 // samples that are exact multiples of the NEON mixer batch size.
-func mixChannelsMono_Scalar(pos, epos, dr uint, cur, vol int, sample []int8, buffer []int) (uint, int) {
+func mixChannelsMono_Scalar(pos, epos, dr, ns uint, cur, vol int, sample []int8, buffer []int) (uint, int) {
+	var genns uint
+
 	for pos < epos {
 		sd := int(sample[pos>>16])
 		buffer[cur] += sd * vol
 
 		pos += dr
 		cur += 2
+		genns++
+	}
+	if genns != ns {
+		fmt.Printf("mixChannelsMono_Scalar a:%d e:%d\n", genns, ns)
 	}
 
 	return pos, cur
 }
 
-func mixChannelsStereo_Scalar(pos, epos, dr uint, cur, lvol, rvol int, sample []int8, buffer []int) (uint, int) {
+func mixChannelsStereo_Scalar(pos, epos, dr, ns uint, cur, lvol, rvol int, sample []int8, buffer []int) (uint, int) {
+	var genns uint
+
 	for pos < epos {
 		// WARNING: no clamping when mixing into mixbuffer. Clamping will be applied when the final audio is returned
 		// to the caller.
@@ -32,6 +42,11 @@ func mixChannelsStereo_Scalar(pos, epos, dr uint, cur, lvol, rvol int, sample []
 
 		pos += dr
 		cur += 2
+		genns++
+	}
+
+	if genns != ns {
+		fmt.Printf("mixChannelsStereo_Scalar a:%d e:%d\n", genns, ns)
 	}
 
 	return pos, cur

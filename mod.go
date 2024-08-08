@@ -35,7 +35,7 @@ func NewMODSongFromBytes(songBytes []byte) (*Song, error) {
 
 	// Read sample information (sample data is read later)
 	for i := 0; i < 31; i++ {
-		s, err := readMODSampleInfo(buf)
+		s, err := readMODSampleInfo(buf, i)
 		if err != nil {
 			return nil, err
 		}
@@ -81,6 +81,13 @@ func NewMODSongFromBytes(songBytes []byte) (*Song, error) {
 	default:
 		return nil, fmt.Errorf("unrecognized MOD format %s", string(x))
 	}
+	dumpf("Title:\t\t%s\n", song.Title)
+	dumpf("Channels:\t%d\n", song.Channels)
+	dumpf("Speed:\t\t%d\n", song.Speed)
+	dumpf("Tempo:\t\t%d\n", song.Tempo)
+	dumpf("Patterns:\t%d\n", patterns)
+	dumpf("Orders:\t\t%d %v\n", len(song.Orders), song.Orders)
+	dumpf("\n")
 
 	// Setup panning
 	for i := 0; i < song.Channels; i++ {
@@ -103,11 +110,30 @@ func NewMODSongFromBytes(songBytes []byte) (*Song, error) {
 			return nil, err
 		}
 
+		dumpf("Pattern %d (x%02X)\n", i, i)
 		for p := 0; p < rowsPerPattern*song.Channels; p++ {
 			n := noteFromMODbytes(scratch[p*bytesPerChannel : (p+1)*bytesPerChannel])
 
-			// row := p / song.Channels
-			// ch := p % song.Channels
+			if dumpW != nil {
+				row := p / song.Channels
+				ch := p % song.Channels
+				if ch == 0 {
+					dumpf("%02X: ", row)
+				}
+
+				data := dumpNoteFromMODbytes(scratch[p*bytesPerChannel : (p+1)*bytesPerChannel])
+				dumpf("%4d", data[0])
+				if data[0] == 0 {
+					dumpf(".....")
+				} else {
+					dumpf("(%s)", noteStrFromPeriod(data[0]))
+				}
+				dumpf("%02X %X%02X", data[1], data[2], data[3])
+
+				if ch == song.Channels-1 {
+					dumpf("\n")
+				}
+			}
 
 			if n.Effect == effectSetVolume {
 				n.Volume = int(n.Param)
@@ -116,6 +142,7 @@ func NewMODSongFromBytes(songBytes []byte) (*Song, error) {
 			}
 			song.patterns[i][p] = n
 		}
+		dumpf("\n")
 	}
 
 	// Read sample data
@@ -140,7 +167,7 @@ func NewMODSongFromBytes(songBytes []byte) (*Song, error) {
 	return song, nil
 }
 
-func readMODSampleInfo(r *bytes.Reader) (*Sample, error) {
+func readMODSampleInfo(r *bytes.Reader, si int) (*Sample, error) {
 	data := struct {
 		Name      [22]byte
 		Length    uint16
@@ -153,6 +180,7 @@ func readMODSampleInfo(r *bytes.Reader) (*Sample, error) {
 	if err := binary.Read(r, binary.BigEndian, &data); err != nil {
 		return nil, err
 	}
+	dumpf("Sample %d x%02X\n", si, si)
 
 	smp := &Sample{
 		Name:      cleanName(string(data.Name[:])),
@@ -181,6 +209,8 @@ func readMODSampleInfo(r *bytes.Reader) (*Sample, error) {
 	if smp.LoopLen < 2 {
 		smp.LoopLen = 0
 	}
+	dumpf("%s\n", smp)
+	dumpf("\t%+v\n", data)
 
 	return smp, nil
 }
@@ -193,6 +223,21 @@ func noteFromMODbytes(nb []byte) note {
 		Pitch:  periodToPlayerNote(period),
 		Effect: nb[2] & 0xF,
 		Param:  nb[3],
+	}
+}
+
+// returned slice
+//
+//	0: Period
+//	1: Sample
+//	2: Effect
+//	3: Param
+func dumpNoteFromMODbytes(nb []byte) []int {
+	return []int{
+		int(int(nb[0]&0xF)<<8 + int(nb[1])),
+		int(nb[0]&0xF0 + nb[2]>>4),
+		int(nb[2] & 0xF),
+		int(nb[3]),
 	}
 }
 

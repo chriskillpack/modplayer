@@ -4,6 +4,7 @@ package modplayer
 
 import (
 	"fmt"
+	"io"
 	"math"
 )
 
@@ -194,6 +195,16 @@ type Sample struct {
 	Data      []int8
 }
 
+func (s Sample) String() string {
+	return fmt.Sprintf(
+		"\tName:\t\t%s\n"+
+			"\tLength:\t\t%d\n"+
+			"\tVolume:\t\t%d\n"+
+			"\tLoop Start:\t%d\n"+
+			"\tLoop Len:\t%d\n", s.Name, s.Length, s.Volume, s.LoopStart, s.LoopLen,
+	)
+}
+
 var (
 	// Amiga period values. This table is used to map the note period
 	// in the MOD file to a note index for display. It is not used in
@@ -233,6 +244,8 @@ var (
 	notes = []string{
 		"C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-",
 	}
+
+	dumpW io.Writer = nil
 )
 
 func (c *channel) portaToNote() {
@@ -266,6 +279,8 @@ func (c *channel) volumeSlide() {
 	}
 	c.volume = vol
 }
+
+func SetDumpWriter(w io.Writer) { dumpW = w }
 
 // NewPlayer returns a new Player for the given song. The Player is already
 // started.
@@ -962,6 +977,24 @@ func periodFromPlayerNote(note playerNote, c4speed int) int {
 	period := periodBase / math.Pow(2, float64(note)/12.0)
 	period = (8363 * period) / float64(c4speed) // Perform finetuning
 	return int(period)
+}
+
+func dumpf(format string, a ...interface{}) {
+	if dumpW == nil {
+		return
+	}
+
+	fmt.Fprintf(dumpW, format, a...)
+}
+
+func noteStrFromPeriod(period int) string {
+	for i, prd := range periodTable {
+		if prd == period {
+			return fmt.Sprintf("%s%d", notes[i%12], i/12+2)
+		}
+	}
+
+	return "   "
 }
 
 // Useful function to dump contents of the audio buffer

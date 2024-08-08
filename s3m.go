@@ -73,6 +73,9 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 			song.Channels++
 		}
 	}
+	dumpf("Channels:\t%d\n", song.Channels)
+	dumpf("Speed:\t\t%d\n", song.Speed)
+	dumpf("Tempo:\t\t%d\n", song.Tempo)
 
 	// Read in the orders
 	orders := make([]byte, header.Length)
@@ -90,6 +93,7 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 		}
 		song.Orders = append(song.Orders, pat)
 	}
+	dumpf("Orders:\t\t%d %v\n", len(song.Orders), song.Orders)
 
 	// Load instrument and pattern parapointers
 	paras := make([]uint16, int(header.NumInstruments)+int(header.NumPatterns))
@@ -113,6 +117,7 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 			song.pan[i] = 8 << 3 // mono song, pan position in the center
 		}
 	}
+	dumpf("Pan:\t\t%v\n", song.pan)
 
 	if header.Panning == 0xFC {
 		// Channel panning positions were provided, read them in
@@ -179,6 +184,10 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 			sample.LoopLen = 0
 		}
 
+		dumpf("Instrument %d x%02X\n", i, i)
+		dumpf("%s\n", sample)
+		dumpf("\t%+v\n", *instHeader)
+
 		// Read sample data
 		dataOffset := (uint(instHeader.MemSegHi)<<16 | uint(instHeader.MemSegLo)) * 16
 		sample.Data = make([]int8, sample.Length)
@@ -200,6 +209,7 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 	}
 
 	song.patterns = make([][]note, header.NumPatterns)
+	noteDump := make([]note, song.Channels)
 
 	// Read in the packed pattern data
 	for i := 0; i < int(header.NumPatterns); i++ {
@@ -217,6 +227,8 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 
 		// TODO: What do we clear the pattern data to?
 
+		dumpf("Pattern %d (x%02X)\n", i, i)
+
 		row := 0
 		for packedLen > 0 {
 			b, err := buf.ReadByte()
@@ -225,6 +237,8 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 			}
 			packedLen--
 			if b == 0 {
+				dumpf("%02X: %s\n", row, dumpRow(noteDump))
+
 				// End of row
 				row++
 				if row >= 64 {
@@ -254,6 +268,7 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 			}
 
 			no := &song.patterns[i][row*song.Channels+chn]
+			nd := &noteDump[chn]
 
 			// note and instrument
 			if b&32 == 32 {
@@ -274,6 +289,9 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 					no.Pitch = playerNote(12 + 12*int(noter>>4) + int(noter&0xF))
 				}
 				no.Sample = int(intr)
+
+				nd.Pitch = no.Pitch
+				nd.Sample = no.Sample
 			}
 
 			// volume
@@ -281,12 +299,17 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 				vol, _ := buf.ReadByte()
 				packedLen--
 				no.Volume = int(vol)
+
+				nd.Volume = no.Volume
 			}
 
 			// effect
 			if b&128 == 128 {
 				efct, _ := buf.ReadByte()
 				parm, _ := buf.ReadByte()
+				nd.Effect = efct
+				nd.Param = parm
+
 				efct, parm = convertS3MEffect(efct, parm)
 				no.Effect = efct
 				no.Param = parm
@@ -343,4 +366,34 @@ func convertS3MEffect(efc, parm byte) (effect byte, param byte) {
 	}
 
 	return
+}
+
+func dumpRow(row []note) string {
+	var s string
+	for i, no := range row {
+		switch no.Pitch {
+		case 254:
+			s += "^^..."
+		case 0:
+			s += "....."
+		default:
+			s += fmt.Sprintf("%s%d%02X", notes[no.Pitch%12], no.Pitch/12-1, no.Sample)
+		}
+
+		if no.Volume != 0xFF {
+			s += fmt.Sprintf("%02X", no.Volume)
+		} else {
+			s += ".."
+		}
+		if no.Effect != 0 {
+			s += fmt.Sprintf("%c%02X", 'A'+(no.Effect-1), no.Param)
+		} else {
+			s += "..."
+		}
+		s += " "
+
+		row[i] = note{}
+	}
+
+	return s
 }

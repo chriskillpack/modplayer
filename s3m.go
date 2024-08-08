@@ -9,13 +9,14 @@ import (
 )
 
 const (
-	s3mfx_SetSpeed       = 0x1
-	s3mfx_PatternJump    = 0x2
-	s3mfx_PatternBreak   = 0x3
-	s3mfx_TonePortamento = 0x7
-	s3mfx_SampleOffset   = 0xF
-	s3mfx_Special        = 0x13
-	s3mfx_SetTempo       = 0x14
+	s3mfx_SetSpeed       = 0x1  // 'A'
+	s3mfx_PatternJump    = 0x2  // 'B'
+	s3mfx_PatternBreak   = 0x3  // 'C'
+	s3mfx_VolumeSlide    = 0x4  // 'D'
+	s3mfx_TonePortamento = 0x7  // 'G'
+	s3mfx_SampleOffset   = 0xF  // 'O'
+	s3mfx_Special        = 0x13 // 'S'
+	s3mfx_SetTempo       = 0x14 // 'T'
 )
 
 var ErrInvalidS3M = errors.New("invalid S3M file")
@@ -298,6 +299,8 @@ func convertS3MEffect(efc, parm byte) (effect byte, param byte) {
 		effect = effectJumpToPattern
 	case s3mfx_PatternBreak:
 		effect = effectPatternBrk
+	case s3mfx_VolumeSlide:
+		effect = effectS3MVolumeSlide
 	case s3mfx_TonePortamento:
 		effect = effectPortaToNote
 	case s3mfx_SampleOffset:

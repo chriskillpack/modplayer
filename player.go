@@ -12,6 +12,7 @@ const (
 
 	rowsPerPattern = 64
 	noteKeyOff     = 254
+	maxVolume      = 64   // channel maximum volume
 	mixBufferLen   = 8192 // samples per channel
 
 	// MOD note effects
@@ -29,6 +30,7 @@ const (
 	effectPatternBrk          = 0xD
 	effectExtended            = 0xE
 	effectSetSpeed            = 0xF
+	effectS3MVolumeSlide      = 0x10
 
 	effectPatternLoop = 0x20
 
@@ -150,6 +152,8 @@ type channel struct {
 	param         byte
 	effectCounter int
 
+	memVolSlide byte // saved volume slide parameter
+
 	trigOrder, trigRow int // The order and row the channel was triggered on
 	// This is here only for State().
 }
@@ -244,8 +248,8 @@ func (c *channel) volumeSlide() {
 	vol := c.volume
 	if (c.param >> 4) > 0 {
 		vol += int(c.param >> 4)
-		if vol > 64 {
-			vol = 64
+		if vol > maxVolume {
+			vol = maxVolume
 		}
 	} else if c.param != 0 {
 		vol -= int(c.param & 0xF)
@@ -451,7 +455,29 @@ func (p *Player) channelTick(c *channel, ci int) {
 		c.tremoloPhase = (c.tremoloPhase + c.tremoloSpeed) & 63
 	case effectVolumeSlide:
 		c.volumeSlide()
+	case effectS3MVolumeSlide:
+		// Fine slides are not applied on in between ticks
+		x := c.memVolSlide >> 4
+		y := c.memVolSlide & 0xF
+		if x == 0xF || y == 0xF {
+			break
+		}
 
+		// Dxy
+		if x > 0 && y == 0 {
+			// slide the volume up by x units
+			c.volume += int(x)
+			if c.volume > maxVolume {
+				c.volume = maxVolume
+			}
+		}
+		if x == 0 && y > 0 {
+			// slide the volume down by y units
+			c.volume -= int(y)
+			if c.volume < 0 {
+				c.volume = 0
+			}
+		}
 	case effectExtended:
 		switch c.param >> 4 {
 		case effectExtendedNoteRetrig:
@@ -640,8 +666,8 @@ func (p *Player) sequenceTick() bool {
 				case effectExtendedFineVolSlideUp:
 					vol := channel.volume
 					vol += int(param & 0x0F)
-					if vol > 64 {
-						vol = 64
+					if vol > maxVolume {
+						vol = maxVolume
 					}
 					channel.volume = vol
 				case effectExtendedFineVolSlideDown:
@@ -654,6 +680,36 @@ func (p *Player) sequenceTick() bool {
 				case effectExtendedNoteCut:
 					if param&0xF == 0 {
 						channel.volume = 0
+					}
+				}
+			case effectS3MVolumeSlide:
+				if param > 0 {
+					channel.memVolSlide = param
+				}
+
+				// On first tick we only apply the fine volume slide
+				x := channel.memVolSlide >> 4
+				y := channel.memVolSlide & 0xF
+				if x != 0xF && y != 0xF {
+					break
+				}
+
+				// Dxy
+				// DF1 slide down by 1 unit on tick 0
+				// DFF is a special case and means slide up by F units on tick 0
+				if x == 0xF && y != 0xF {
+					// slide volume down by y units
+					channel.volume -= int(y)
+					if channel.volume < 0 {
+						channel.volume = 0
+					}
+				}
+				// D2F slide up by 2 units on tick 0
+				if y == 0xF {
+					// slide volume up by x units
+					channel.volume -= int(x)
+					if channel.volume > maxVolume {
+						channel.volume = maxVolume
 					}
 				}
 			}

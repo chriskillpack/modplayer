@@ -11,6 +11,7 @@ const (
 	retracePALHz = 7093789.2 // Amiga PAL vertical retrace timing
 
 	rowsPerPattern = 64
+	noteKeyOff     = 254
 	mixBufferLen   = 8192 // samples per channel
 
 	// MOD note effects
@@ -529,7 +530,12 @@ func (p *Player) sequenceTick() bool {
 					// channel.period = (period * fineTuning[channel.fineTune]) >> 12
 
 					// convert the S3M note to a period
-					if pitch < 254 {
+					switch pitch {
+					case noteKeyOff:
+						channel.volume = 0 // set volume to 0
+					case 255:
+						// TODO: dunno
+					default:
 						channel.period = periodFromPlayerNote(pitch, channel.c4speed)
 					}
 

@@ -62,14 +62,15 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 	song.Tempo = int(header.Tempo)
 	song.Speed = int(header.Speed)
 
-	// Count up the number of channels
-	var nc int
-	for nc = 0; nc < 32; nc++ {
-		if header.ChannelSettings[nc] == 255 {
-			break
+	// Count up the number of channels and build the channel remap table
+	remap := make([]int, 32)
+	song.Channels = 0
+	for i := 0; i < 32; i++ {
+		if header.ChannelSettings[i] < 16 {
+			remap[song.Channels] = i
+			song.Channels++
 		}
 	}
-	song.Channels = nc
 
 	// Read in the orders
 	orders := make([]byte, header.Length)
@@ -225,7 +226,7 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 				continue
 			}
 
-			chn := int(b & 31)
+			chn := remap[int(b&31)]
 			if chn > song.Channels {
 				// Bogus data, skip this packed byte. Need to use top 3 bits
 				// of byte to determine how much data follows and needs to be

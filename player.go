@@ -532,7 +532,7 @@ func (p *Player) sequenceTick() bool {
 
 			// If there is an instrument/sample number then reset the volume
 			// sample numbers are 1-based in MOD format
-			if sampNum > 0 && sampNum < 32 {
+			if sampNum > 0 && sampNum <= len(p.Song.Samples) {
 				smp := &p.Song.Samples[sampNum-1]
 
 				channel.volume = smp.Volume

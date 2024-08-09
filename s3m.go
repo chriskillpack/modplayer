@@ -308,12 +308,15 @@ func convertS3MEffect(efc, parm byte) (effect byte, param byte) {
 		effect = effectSampleOffset
 	case s3mfx_Special:
 		switch parm >> 4 {
-		case 0xB:
-			effect = effectPatternLoop
-			param = param & 0xF
-		case 0x8:
+		case 0x8: // S8x Channel Pan Position
 			effect = effectSetPanPosition
 			param = (param & 0xF) << 3
+		case 0xB: // SBx Pattern Loop
+			effect = effectPatternLoop
+			param = param & 0xF
+		case 0xD: // SDx Note Delay
+			effect = effectExtended
+			param = (effectExtendedNoteDelay << 4) | param&0xF
 		default:
 			// Unhandled effects are disabled for now
 			effect = 0

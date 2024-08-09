@@ -9,14 +9,15 @@ import (
 )
 
 const (
-	s3mfx_SetSpeed       = 0x1  // 'A'
-	s3mfx_PatternJump    = 0x2  // 'B'
-	s3mfx_PatternBreak   = 0x3  // 'C'
-	s3mfx_VolumeSlide    = 0x4  // 'D'
-	s3mfx_TonePortamento = 0x7  // 'G'
-	s3mfx_SampleOffset   = 0xF  // 'O'
-	s3mfx_Special        = 0x13 // 'S'
-	s3mfx_SetTempo       = 0x14 // 'T'
+	s3mfx_SetSpeed        = 0x1  // 'A'
+	s3mfx_PatternJump     = 0x2  // 'B'
+	s3mfx_PatternBreak    = 0x3  // 'C'
+	s3mfx_VolumeSlide     = 0x4  // 'D'
+	s3mfx_TonePortamento  = 0x7  // 'G'
+	s3mfx_SampleOffset    = 0xF  // 'O'
+	s3mfx_Special         = 0x13 // 'S'
+	s3mfx_SetTempo        = 0x14 // 'T'
+	s3mfx_SetGlobalVolume = 0x16 // 'V'
 )
 
 var ErrInvalidS3M = errors.New("invalid S3M file")
@@ -61,6 +62,7 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 	}
 	song.Tempo = int(header.Tempo)
 	song.Speed = int(header.Speed)
+	song.GlobalVolume = int(header.Volume)
 
 	// Count up the number of channels and build the channel remap table
 	remap := make([]int, 32)
@@ -324,6 +326,8 @@ func convertS3MEffect(efc, parm byte) (effect byte, param byte) {
 		}
 	case s3mfx_SetTempo:
 		effect = effectSetSpeed
+	case s3mfx_SetGlobalVolume:
+		effect = effectS3MGlobalVolume
 	default:
 		// disable the effect for now
 		effect = 0

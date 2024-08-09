@@ -22,9 +22,10 @@ var fineTuning = []int{
 // and pattern data into structures that the Player can use.
 func NewMODSongFromBytes(songBytes []byte) (*Song, error) {
 	song := &Song{
-		Speed:   6,
-		Tempo:   125,
-		Samples: make([]Sample, 31),
+		Speed:        6,
+		Tempo:        125,
+		GlobalVolume: maxVolume,
+		Samples:      make([]Sample, 31),
 	}
 
 	buf := bytes.NewReader(songBytes)

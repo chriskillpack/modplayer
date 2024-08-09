@@ -30,9 +30,11 @@ const (
 	effectPatternBrk          = 0xD
 	effectExtended            = 0xE
 	effectSetSpeed            = 0xF
-	effectS3MVolumeSlide      = 0x10
 
-	effectPatternLoop = 0x20
+	// Internal effects
+	effectPatternLoop     = 0x20
+	effectS3MVolumeSlide  = 0x21
+	effectS3MGlobalVolume = 0x22
 
 	// Extended effects (Exy), x = effect, y effect param
 	effectExtendedNoteRetrig       = 0x9
@@ -47,6 +49,7 @@ const (
 type Player struct {
 	*Song
 	samplingFrequency uint
+	globalVolume      uint
 	volBoost          uint
 
 	// song configuration
@@ -165,11 +168,12 @@ type loopinfo struct {
 
 // Song represents a MOD or S3M file
 type Song struct {
-	Title    string
-	Channels int
-	Orders   []byte
-	Tempo    int // in beats per minute
-	Speed    int // number of tempo ticks before advancing to the next row
+	Title        string
+	Channels     int
+	Orders       []byte
+	Tempo        int // in beats per minute
+	Speed        int // number of tempo ticks before advancing to the next row
+	GlobalVolume int
 
 	Samples  []Sample
 	patterns [][]note
@@ -266,6 +270,7 @@ func NewPlayer(song *Song, samplingFrequency uint) (*Player, error) {
 	player := &Player{
 		samplingFrequency: samplingFrequency,
 		volBoost:          1,
+		globalVolume:      uint(song.GlobalVolume),
 		Song:              song,
 		Speed:             6,
 	}
@@ -712,6 +717,11 @@ func (p *Player) sequenceTick() bool {
 						channel.volume = maxVolume
 					}
 				}
+			case effectS3MGlobalVolume:
+				p.globalVolume = uint(param)
+				if p.globalVolume > maxVolume {
+					p.globalVolume = maxVolume
+				}
 			}
 			rowDataIdx++
 		}
@@ -759,8 +769,9 @@ func (p *Player) mixChannels(nSamples, offset int) {
 		dr := uint(playbackHz<<16) / p.samplingFrequency
 		pos := channel.samplePosition
 		vol := channel.volume + channel.tremoloAdjust
-		if vol >= 64 {
-			vol = 64
+		vol = (vol * p.GlobalVolume) >> 6
+		if vol >= maxVolume {
+			vol = maxVolume
 		}
 
 		// If the volume is off or the channel muted

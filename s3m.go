@@ -47,10 +47,10 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 		Tracker         uint16
 		SampleFormat    uint16  // 1 = signed, 2 = unsigned
 		_               [4]byte // 'SCRM'
-		Volume          uint8
+		GlobalVolume    uint8
 		Speed           uint8
 		Tempo           uint8
-		MastVolume      uint8
+		MasterVolume    uint8 // Bit 7 (1)=Stereo, (0)=Mono, ignore other bits
 		_               uint8
 		Panning         uint8
 		_               [8]byte
@@ -103,7 +103,7 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 	}
 
 	// Configure the channel default pan positions
-	stereo := (header.MastVolume & 128) == 128
+	stereo := (header.MasterVolume & 128) == 128
 	for i := 0; i < 32; i++ {
 		if stereo {
 			// In stereo, first 8 channels are left, next 8 are right. Last 16 are center
@@ -374,7 +374,7 @@ func dumpRow(row []note) string {
 	var s string
 	for i, no := range row {
 		switch no.Pitch {
-		case 254:
+		case noteKeyOff:
 			s += "^^..."
 		case 0:
 			s += "....."

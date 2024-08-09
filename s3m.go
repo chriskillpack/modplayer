@@ -73,6 +73,7 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 			song.Channels++
 		}
 	}
+	dumpf("Name:\t\t%s\n", song.Title)
 	dumpf("Channels:\t%d\n", song.Channels)
 	dumpf("Speed:\t\t%d\n", song.Speed)
 	dumpf("Tempo:\t\t%d\n", song.Tempo)
@@ -132,6 +133,7 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 			}
 		}
 	}
+	dumpf("Raw:\t\t%+v\n", header)
 
 	// Read in the instrument sample data
 	song.Samples = make([]Sample, int(header.NumInstruments))

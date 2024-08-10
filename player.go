@@ -114,11 +114,14 @@ type playerNote int
 // String returns the note pitch in name-octave form, e.g. C-4, A#2.
 // Returns three spaces if the note is not recognized.
 func (note playerNote) String() string {
-	if note == 0 {
+	switch note {
+	case 0:
 		return "   "
+	case noteKeyOff:
+		return "^^."
+	default:
+		return fmt.Sprintf("%s%d", notes[note%12], note/12-1)
 	}
-
-	return fmt.Sprintf("%s%d", notes[note%12], note/12-1)
 }
 
 // Internal representation of a pattern note

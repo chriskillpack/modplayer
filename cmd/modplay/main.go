@@ -124,15 +124,15 @@ func main() {
 	// Print out some player preceeding 4 rows, current row and upcoming 4 rows
 	// <title> row 1A/3F pat 0A/73 speed 6 bpm 125
 	//
-	//          0 000|     0 C00|     0 000|     0 000
-	//          0 000|     0 000|     0 000|     0 000
-	//     C#5  F 000|G-5 14 000|     0 000|     0 000
-	//          0 000|     0 000|     0 000|     0 000
-	// >>>      0 000|     0 000|     0 000|     0 000 <<<
-	//          0 000|     0 000|     0 000|     0 000
-	//          0 000|G-5 14 C0B|     0 000|     0 000
-	//          0 000|     0 000|     0 000|     0 000
-	//     C#5  F 000|     0 000|     0 000|     0 000
+	//          0 0000|     0 0C00|^^.  0 0000|     0 0000
+	//          0 0000|     0 0000|     0 0000|     0 0000
+	//     C#5  F 0000|G-5 14 0000|     0 0000|     0 0000
+	//          0 0000|     0 0000|     0 0000|     0 0000
+	// >>>      0 0000|     0 0000|     0 0000|     0 0000 <<<
+	//          0 0000|     0 0000|     0 0000|     0 0000
+	//          0 0000|G-5 14 0C0B|     0 0000|     0 0000
+	//          0 0000|     0 0000|     0 0000|     0 0000
+	//     C#5  F 0000|     0 0000|     0 0000|     0 0000
 
 	var lastState modplayer.PlayerState
 	for player.IsPlaying() {
@@ -189,7 +189,7 @@ func main() {
 					} else {
 						fmt.Print(green(".."))
 					}
-					fmt.Print(" ", magenta("%X", n.Effect), yellow("%02X", n.Param))
+					fmt.Print(" ", magenta("%02X", n.Effect), yellow("%02X", n.Param))
 
 					if ni < 3 {
 						fmt.Print("|")

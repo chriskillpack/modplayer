@@ -227,8 +227,6 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 
 		song.patterns[i] = initNotePattern(song.Channels)
 
-		// TODO: What do we clear the pattern data to?
-
 		dumpf("Pattern %d (x%02X)\n", i, i)
 
 		row := 0
@@ -377,9 +375,15 @@ func dumpRow(row []note) string {
 		case noteKeyOff:
 			s += "^^..."
 		case 0:
-			s += "....."
+			s += "..."
 		default:
-			s += fmt.Sprintf("%s%d%02X", notes[no.Pitch%12], no.Pitch/12-1, no.Sample)
+			s += fmt.Sprintf("%s%d", notes[no.Pitch%12], no.Pitch/12-1)
+		}
+		switch no.Sample {
+		case 0:
+			s += ".."
+		default:
+			s += fmt.Sprintf("%02X", no.Sample)
 		}
 
 		if no.Volume != 0xFF {

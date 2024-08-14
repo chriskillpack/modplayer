@@ -147,8 +147,8 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 			_            uint16
 			Volume       byte
 			_            byte
-			Packing      byte // should be 0
-			Flags        byte
+			Packing      byte   // should be 0
+			Flags        byte   // bit 0 set if the sample is looping
 			C2Speed      uint16 // really this should be called C4Speed
 			_            uint16
 			_            [12]byte
@@ -172,6 +172,11 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 			Name:      cleanName(string(instHeader.Name[:])),
 			C4Speed:   int(instHeader.C2Speed),
 			Volume:    int(instHeader.Volume),
+		}
+		// Some S3M instruments will have a loop length but not actually be a looping sample
+		// The loop flag is the source of truth
+		if instHeader.Flags&1 != 1 {
+			sample.LoopLen = 0
 		}
 
 		// Read sample data

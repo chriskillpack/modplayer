@@ -267,6 +267,9 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 				switch noter {
 				case noteKeyOff:
 					no.Pitch = playerNote(noteKeyOff)
+				case 255:
+					// no note, only an instrument, mark the pitch as 0
+					no.Pitch = 0
 				default:
 					no.Pitch = playerNote(12 + 12*int(noter>>4) + int(noter&0xF))
 				}

@@ -568,7 +568,7 @@ func (p *Player) sequenceTick() bool {
 					case noteKeyOff:
 						channel.volume = 0 // set volume to 0
 					case 255:
-						// TODO: dunno
+						// We should never get this because S3M loader remapped to 0
 					default:
 						channel.period = periodFromPlayerNote(pitch, channel.c4speed)
 					}

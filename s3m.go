@@ -62,7 +62,7 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 	}
 	song.Tempo = int(header.Tempo)
 	song.Speed = int(header.Speed)
-	song.GlobalVolume = int(header.Volume)
+	song.GlobalVolume = int(header.GlobalVolume)
 
 	// Count up the number of channels and build the channel remap table
 	remap := make([]int, 32)
@@ -118,7 +118,6 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 			song.pan[i] = 8 << 3 // mono song, pan position in the center
 		}
 	}
-	dumpf("Pan:\t\t%v\n", song.pan)
 
 	if header.Panning == 0xFC {
 		// Channel panning positions were provided, read them in
@@ -133,6 +132,7 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 			}
 		}
 	}
+	dumpf("Pan:\t\t%v\n", song.pan)
 	dumpf("Raw:\t\t%+v\n", header)
 
 	// Read in the instrument sample data

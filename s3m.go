@@ -102,9 +102,9 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 	for i := 0; i < 32; i++ {
 		if stereo {
 			// In stereo, first 8 channels are left, next 8 are right. Last 16 are center
-			if i < 8 {
+			if header.ChannelSettings[i] < 8 {
 				song.pan[i] = 3 << 3
-			} else if i < 16 {
+			} else if header.ChannelSettings[i] < 16 {
 				song.pan[i] = 0xC << 3
 			} else {
 				song.pan[i] = 8 << 3 // "AdLib" channel, center pan

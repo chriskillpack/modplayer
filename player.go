@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	retracePALHz = 7093789.2 // Amiga PAL vertical retrace timing
+	retracePALHz = 14187578.4 // Amiga PAL vertical retrace timing
 
 	rowsPerPattern = 64
 	noteKeyOff     = 254
@@ -33,9 +33,11 @@ const (
 	effectSetSpeed            = 0xF
 
 	// Internal effects
-	effectPatternLoop     = 0x20
-	effectS3MVolumeSlide  = 0x21
-	effectS3MGlobalVolume = 0x22
+	effectPatternLoop       = 0x20
+	effectS3MVolumeSlide    = 0x21
+	effectS3MPortamentoDown = 0x22
+	effectS3MPortamentoUp   = 0x23
+	effectS3MGlobalVolume   = 0x24
 
 	// Extended effects (Exy), x = effect, y effect param
 	effectExtendedNoteRetrig       = 0x9
@@ -159,7 +161,8 @@ type channel struct {
 	param         byte
 	effectCounter int
 
-	memVolSlide byte // saved volume slide parameter
+	memVolSlide   byte // saved volume slide parameter
+	memPortamento byte // saved portamento parameter
 
 	trigOrder, trigRow int // The order and row the channel was triggered on
 	// This is here only for State().
@@ -251,12 +254,12 @@ var (
 func (c *channel) portaToNote() {
 	period := c.period
 	if period < c.portaPeriod {
-		period += c.portaSpeed
+		period += c.portaSpeed * 4
 		if period > c.portaPeriod {
 			period = c.portaPeriod
 		}
 	} else if period > c.portaPeriod {
-		period -= c.portaSpeed
+		period -= c.portaSpeed * 4
 		if period < c.portaPeriod {
 			period = c.portaPeriod
 		}
@@ -445,17 +448,17 @@ func (p *Player) setTempo(tempo int) {
 	p.Tempo = tempo
 }
 
-func (p *Player) channelTick(c *channel, ci int) {
+func (p *Player) channelTick(c *channel, tick int) {
 	c.effectCounter++
 
 	switch c.effect {
 	case effectPortamentoUp:
-		c.period -= int(c.param)
+		c.period -= int(c.param) * 4
 		if c.period < 1 {
 			c.period = 1
 		}
 	case effectPortamentoDown:
-		c.period += int(c.param)
+		c.period += int(c.param) * 4
 		if c.period > 65535 {
 			c.period = 65535
 		}
@@ -500,6 +503,26 @@ func (p *Player) channelTick(c *channel, ci int) {
 			if c.volume < 0 {
 				c.volume = 0
 			}
+		}
+	case effectS3MPortamentoDown:
+		// Dxy
+		// Fine and extra fine slides are not applied on in between ticks
+		if c.memPortamento >= 0xE0 {
+			break
+		}
+		c.period += int(c.memPortamento) * 4
+		if c.period > 65535 {
+			c.period = 65535
+		}
+	case effectS3MPortamentoUp:
+		// Dxy
+		// Fine and extra fine slides are not applied on in between ticks
+		if c.memPortamento >= 0xE0 {
+			break
+		}
+		c.period -= int(c.memPortamento) * 4
+		if c.period < 1 {
+			c.period = 1
 		}
 	case effectExtended:
 		switch c.param >> 4 {
@@ -735,6 +758,44 @@ func (p *Player) sequenceTick() bool {
 						channel.volume = maxVolume
 					}
 				}
+			case effectS3MPortamentoDown:
+				if param > 0 {
+					channel.memPortamento = param
+				}
+				// Exy
+				// EEy - on tick 0, extra fine slide down by y units
+				// EFy - on tick 0, fine slide down by y*4 units
+				if param < 0xE0 {
+					break
+				}
+				switch param >> 4 {
+				case 0xE: // extra fine slide
+					channel.period += int(param & 0xF)
+				case 0xF: // fine slide
+					channel.period += int(param&0xF) * 4
+				}
+				if channel.period > 65535 {
+					channel.period = 65535
+				}
+			case effectS3MPortamentoUp:
+				if param > 0 {
+					channel.memPortamento = param
+				}
+				// Fxy
+				// FEy - on tick 0, extra fine slide down by y units
+				// FFy - on tick 0, fine slide down by y*4 units
+				if param < 0xE0 {
+					break
+				}
+				switch param >> 4 {
+				case 0xE: // extra fine slide
+					channel.period -= int(param & 0xF)
+				case 0xF: // fine slide
+					channel.period -= int(param&0xF) * 4
+				}
+				if channel.period < 1 {
+					channel.period = 1
+				}
 			case effectS3MGlobalVolume:
 				p.globalVolume = uint(param)
 				if p.globalVolume > maxVolume {
@@ -762,7 +823,7 @@ func (p *Player) sequenceTick() bool {
 	} else {
 		// channel tick
 		for i := 0; i < p.Song.Channels; i++ {
-			p.channelTick(&p.channels[i], i)
+			p.channelTick(&p.channels[i], p.tick)
 		}
 	}
 
@@ -782,7 +843,7 @@ func (p *Player) mixChannels(nSamples, offset int) {
 			continue
 		}
 
-		period := (channel.period + channel.vibratoAdjust) * 2
+		period := channel.period + (channel.vibratoAdjust * 4)
 		playbackHz := int(retracePALHz / float32(period))
 		dr := uint(playbackHz<<16) / p.samplingFrequency
 		pos := channel.samplePosition
@@ -976,7 +1037,7 @@ func periodFromPlayerNote(note playerNote, c4speed int) int {
 	// This formula is the inverse of the formula in periodToPlayerNote().
 	period := periodBase / math.Pow(2, float64(note)/12.0)
 	period = (8363 * period) / float64(c4speed) // Perform finetuning
-	return int(period)
+	return int(period) * 4
 }
 
 func dumpf(format string, a ...interface{}) {

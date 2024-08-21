@@ -382,7 +382,7 @@ func dumpRow(row []note) string {
 	for i, no := range row {
 		switch no.Pitch {
 		case noteKeyOff:
-			s += "^^..."
+			s += "^^."
 		case 0:
 			s += "..."
 		default:

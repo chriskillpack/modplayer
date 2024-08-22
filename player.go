@@ -753,7 +753,7 @@ func (p *Player) sequenceTick() bool {
 				// D2F slide up by 2 units on tick 0
 				if y == 0xF {
 					// slide volume up by x units
-					channel.volume -= int(x)
+					channel.volume += int(x)
 					if channel.volume > maxVolume {
 						channel.volume = maxVolume
 					}

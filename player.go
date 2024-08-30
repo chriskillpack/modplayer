@@ -562,11 +562,6 @@ func (p *Player) sequenceTick() bool {
 		for i := 0; i < p.Song.Channels; i++ {
 			channel := &p.channels[i]
 
-			if (p.Mute & (1 << i)) != 0 {
-				rowDataIdx++
-				continue
-			}
-
 			channel.effectCounter = 0
 			patnote := &p.Song.patterns[pattern][rowDataIdx]
 			sampNum := patnote.Sample

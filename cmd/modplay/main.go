@@ -21,6 +21,7 @@ var (
 	flagBoost    = flag.Int("boost", 1, "volume boost, an integer between 1 and 4")
 	flagStartOrd = flag.Int("start", 0, "starting order in the MOD, clamped to song max")
 	flagReverb   = flag.String("reverb", "light", "choose from light, medium, silly or none")
+	flagMute     = flag.Uint("mute", 0, "bitmask of muted channels, channel 1 in LSB, set bit to mute channel")
 )
 
 const (
@@ -64,6 +65,7 @@ func main() {
 	if err := player.SetVolumeBoost(*flagBoost); err != nil {
 		log.Fatal(err)
 	}
+	player.Mute = *flagMute
 	player.SeekTo(*flagStartOrd, 0)
 
 	initErr := portaudio.Initialize()

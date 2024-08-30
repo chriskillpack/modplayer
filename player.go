@@ -144,6 +144,7 @@ type channel struct {
 	portaPeriod    int // Portamento destination as a period
 	portaSpeed     int
 	volume         int
+	volumeToPlay   int // volume _to be played_, used for Note Delay effect
 	pan            int // Pan position, 0=Full Left, 127=Full Right
 	samplePosition uint
 
@@ -431,6 +432,8 @@ func (p *Player) reset() {
 	for i := 0; i < p.Song.Channels; i++ {
 		channel := &p.channels[i]
 		channel.sample = -1
+		channel.sampleToPlay = -1
+		channel.volumeToPlay = 0
 		channel.tremoloDepth = 0
 		channel.tremoloSpeed = 0
 		channel.tremoloPhase = 0
@@ -440,6 +443,8 @@ func (p *Player) reset() {
 		channel.vibratoPhase = 0
 		channel.vibratoAdjust = 0
 		channel.pan = int(p.Song.pan[i])
+		channel.memVolSlide = 0
+		channel.memPortamento = 0
 	}
 }
 
@@ -448,7 +453,7 @@ func (p *Player) setTempo(tempo int) {
 	p.Tempo = tempo
 }
 
-func (p *Player) channelTick(c *channel, tick int) {
+func (p *Player) channelTick(c *channel, ci, tick int) {
 	c.effectCounter++
 
 	switch c.effect {
@@ -538,6 +543,7 @@ func (p *Player) channelTick(c *channel, tick int) {
 		case effectExtendedNoteDelay:
 			if c.effectCounter == int(c.param&0xF) {
 				c.sample = c.sampleToPlay
+				c.volume = c.volumeToPlay
 				c.samplePosition = 0
 				c.tremoloPhase = 0
 				c.vibratoPhase = 0
@@ -576,7 +582,7 @@ func (p *Player) sequenceTick() bool {
 			if sampNum > 0 && sampNum <= len(p.Song.Samples) {
 				smp := &p.Song.Samples[sampNum-1]
 
-				channel.volume = smp.Volume
+				channel.volumeToPlay = smp.Volume
 				// channel.fineTune = smp.FineTune
 				channel.c4speed = smp.C4Speed
 				channel.sampleToPlay = sampNum - 1
@@ -604,6 +610,7 @@ func (p *Player) sequenceTick() bool {
 						// We should never get this because S3M loader remapped to 0
 					default:
 						channel.period = periodFromPlayerNote(pitch, channel.c4speed)
+						channel.volume = channel.volumeToPlay
 					}
 
 					// ... assign the new instrument if one was provided
@@ -818,7 +825,7 @@ func (p *Player) sequenceTick() bool {
 	} else {
 		// channel tick
 		for i := 0; i < p.Song.Channels; i++ {
-			p.channelTick(&p.channels[i], p.tick)
+			p.channelTick(&p.channels[i], i, p.tick)
 		}
 	}
 

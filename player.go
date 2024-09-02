@@ -1016,8 +1016,8 @@ func (p *Player) rowDataIndex() int {
 }
 
 // Allocate and initialize a new pattern of notes
-func initNotePattern(nch int) []note {
-	notes := make([]note, rowsPerPattern*nch)
+func initNotePattern(n int) []note {
+	notes := make([]note, n)
 	for i := range notes {
 		notes[i].Volume = 0xFF
 	}

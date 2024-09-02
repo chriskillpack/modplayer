@@ -214,7 +214,6 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 	}
 
 	song.patterns = make([][]note, header.NumPatterns)
-	noteDump := make([]note, song.Channels)
 
 	// Read in the packed pattern data
 	for i := 0; i < int(header.NumPatterns); i++ {
@@ -228,7 +227,8 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 		}
 		packedLen -= 2
 
-		song.patterns[i] = initNotePattern(song.Channels)
+		song.patterns[i] = initNotePattern(rowsPerPattern * song.Channels)
+		noteDump := initNotePattern(song.Channels)
 
 		dumpf("Pattern %d (x%02X)\n", i, i)
 
@@ -240,7 +240,10 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 			}
 			packedLen--
 			if b == 0 {
-				dumpf("%02X: %s\n", row, dumpRow(noteDump))
+				if dumpW != nil {
+					dumpf("%02X: %s\n", row, dumpRow(noteDump))
+					noteDump = initNotePattern(song.Channels)
+				}
 
 				// End of row
 				row++

@@ -6,32 +6,70 @@ A Go package to play [MOD](<https://en.wikipedia.org/wiki/MOD_(file_format)>) an
 
 Back in the mid-90's I was active in the PC demoscene and always relied on other people's player code for the music. I never knew how they worked, so I decided many many years later to sit down and code one.
 
-Right now only MOD and S3M files are supported, with S3M support being very incomplete.
-
 # Usage
 
 The package consists of two main parts, a `Song` and a `Player`. The `Song` struct represents a parsed MOD or S3M file, use `NewMODSongFromBytes` or `NewS3MSongFromBytes` to parse a byte slice holding a music file into a `Song`. Use the correct function for the file type. With a `Song` you can create a `Player` instance. Then call `GenerateAudio` on the `Player` instance to generate raw audio output which you send to an audio device (the `modplay` command) or serialize to disk (the `modwav` command).
 
-# Build
+# Binaries
 
-There are two binaries provided, `modwav` which converts MOD files to RIFF WAVE format files. Pure Go code with no third party dependencies.
+There are three binaries provided, `modwav`, `modplay` and `moddump`.
+
+### `modwav`
+
+Generates audio output from MOD and S3M song files, and saves the output in RIFF WAVE format. This is pure Go code with no third party dependencies.
 
 ```bash
-cd cmd/modwav
-go run . -hz 22050 awesome.mod  # Generate a 22.5Khz WAVE file from awesome.mod called awesome.wav
+$ go run ./cmd/modwav -hz 22050 awesome.mod  # Generate a 22.5Khz WAVE file from awesome.mod called awesome.wav
 ```
 
 You can use the `-hz` and `-wav` command line options to affect quality (default 44.1Khz) and output file, by default the same filename with a `.wav` extension in the current directory. The `-boost` flag can be used to boost the output volume, but this can cause clipping.
 
-The second binary is `modplay` which uses `portaudio` to play the MOD file to audio out on your computer. I've included the Windows DLL `portaudio_x64.dll`, you will need to compile portaudio for other platforms. Good luck with that, it can be a bit of a hassle.
+### `modplay`
+
+Plays MOD and S3M files through your computers audio out. Go/CGo and uses PortAudio to play the audio. I've included the Windows DLL `portaudio_x64.dll`, you will need to compile portaudio for other platforms. Good luck with that, it can be a bit of a hassle.
 
 ```bash
-cd $MOD_PLAYER/cmd/modplay
-PKG_CONFIG_PATH=$PORTAUDIO CGO_CFLAGS="-I $PORTAUDIO/include" CGO_LDFLAGS="-L $PORTAUDIO/lib/.libs" go build .
-modplay awesome.mod
+$ export PKG_CONFIG_PATH=$PORTAUDIO
+$ export CGO_CFLAGS="-I $PORTAUDIO/include"
+$ export CGO_LDFLAGS="-L $PORTAUDIO/lib/.libs"
+$ go run ./cmd/modplay awesome.mod
 ```
 
 ![Screenshot of modplay](/docs/modplay.png)
+
+### `moddump`
+
+Prints the interpreted and raw contents of MOD and S3M files to stdout. The output includes the pattern data and instrument definitions. A really useful tool when debugging.
+
+```bash
+$ go run ./cmd/moddump mods/caero.s3m
+Name:		
+Channels:	13
+Speed:		6
+Tempo:		131
+Orders:		58 [0 1 4 5 6 7 8 9 16 17 2 3 12 11 10 14 13 14 18 19 20 21 22 21 24 25 24 25 30 31 32 33 34 33 35 36 35 36 37 38 37 38 39 40 41 42 39 40 41 42 46 47 48 49 50 43 44 45]
+Pan:		[56 40 80 80 40 56 96 24 96 56 96 24 56 64 64 64 64 64 64 64 64 64 64 64 64 64 64 64 64 64 64 64]
+Raw:		{Pad:26 Filetype:16 _:0 Length:60 NumInstruments:41 NumPatterns:51 Flags:0 Tracker:4896 SampleFormat:2 _:[0 0 0 0] GlobalVolume:64 Speed:6 Tempo:131 MasterVolume:176 _:0 Panning:252 _:[0 0 0 0 0 0 0 0] _:[0 0] ChannelSettings:[0 8 1 9 2 10 3 11 4 12 5 13 6 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255 255]}
+Instrument 0 x00
+	Name:		kohwq
+	Length:		37112
+[...]
+Pattern 0 (x00)
+00: E-407..... C-50801... .....10... D#50801... .....13... .......... .......... .......... .......... .......... A-40901... .......... .......... 
+01: .......... .....03... .....10... .....03... .....12... .......... .......... .......... .......... .......... .....01... .......... .......... 
+02: .......... .....06... .....0F... .....06... .....11... .......... .......... .......... .......... .......... .....01... .......... .......... 
+03: .......... .....09... .....0F... .....09... .....10... .......... .......... .......... .......... .......... .....02... .......... .......... 
+04: .......... .....0B... .....0E... .....0B... .....10... .......... .......... .......... .......... .......... .....02... .......... .......... 
+[...]
+```
+
+# Testing
+
+Testing a music player is a little tricky because the output is audio data. As such there are only integration tests and manual listening tests where I compare the audio output to other players (such as Open Cubic Player and MilkyTracker). I have some ideas on how to write unit tests for the player logic and plan to get to these later.
+
+### Integration tests
+
+There are two scripts `make_golden.sh` and `check_against_golden.sh`. The first runs `modwav` for each of the included songs to produce "golden" WAVE files. The second script re-runs `modwav` to a temporary directory and compares the output to the corresponding golden file. The comparison uses the `cmp` utility, so it's a trivial byte for byte comparison. These scripts are really only useful during refactors to verify that the output has not changed. Almost any other change affects the output so these tests will fail.
 
 # MOD and S3M files
 
@@ -39,7 +77,7 @@ You can find tracker files at [The Mod Archive](https://modarchive.org/) but I i
 
 `space_debris.mod` - one of the most popular MODs on The Mod Archive\
 `dope.mod` - From the PC demo [DOPE](http://www.pouet.net/prod.php?which=37) by Complex\
-`believe.mod` - From the 64kb PC intro [Believe](http://www.pouet.net/prod.php?which=1151) by Valhalla
+`believe.mod` - From the 64kb PC intro [Believe](http://www.pouet.net/prod.php?which=1151) by Valhalla\
 `caero.s3m` - From the PC demo [Caero](https://www.pouet.net/prod.php?which=2163) by Plant & Electromotive Force
 
 # Technical Docs
@@ -67,4 +105,5 @@ sudo cp $PORTAUDIO/lib/.libs/libportaudio.2.dylib /usr/local/lib
 # TODO
 
 - Finish S3M support
+- Unit tests
 - Add sample interpolation into mixer for improved sound quality

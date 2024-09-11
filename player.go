@@ -15,6 +15,7 @@ const (
 	noteKeyOff     = 254
 	maxVolume      = 64   // channel maximum volume
 	mixBufferLen   = 8192 // samples per channel
+	noNoteVolume   = 255  // note data does not have a volume set
 
 	// MOD note effects
 	effectPortamentoUp        = 0x1
@@ -140,7 +141,7 @@ type channel struct {
 	sample         int // sample that is being played (or -1 if no sample)
 	sampleToPlay   int // sample _to be played_, used for Note Delay effect
 	period         int
-	c4speed        int // the c4speed of the sample
+	periodToPlay   int // period of a note with note delay
 	portaPeriod    int // Portamento destination as a period
 	portaSpeed     int
 	volume         int
@@ -542,11 +543,8 @@ func (p *Player) channelTick(c *channel, ci, tick int) {
 			}
 		case effectExtendedNoteDelay:
 			if c.effectCounter == int(c.param&0xF) {
-				c.sample = c.sampleToPlay
+				c.triggerNote(c.periodToPlay, c.sampleToPlay)
 				c.volume = c.volumeToPlay
-				c.samplePosition = 0
-				c.tremoloPhase = 0
-				c.vibratoPhase = 0
 			}
 		}
 	}
@@ -575,61 +573,97 @@ func (p *Player) sequenceTick() bool {
 			effect := byte(patnote.Effect)
 			param := byte(patnote.Param)
 
-			// Getting note triggering logic correct was a pain, H/T micromod
+			/*
+				Note triggering behavior, from experimentation in ST3
+
+				Note Ins Vol Effect Behavior
+				N                   Play new note N with existing instrument, at
+									existing channel volume. If no prior
+									instrument nothing is played. Prior
+									instrument cleared at beginning of song, not
+									each pattern transition.
+					 I              Next note will use instrument I, stops
+									currently playing instrument.
+				N    I              Play new note N with new instrument I, at
+									instrument default volume.
+						 V          Adjust channel volume to V.
+				N        V          Play new note N at volume V with existing
+									instrument on channel.
+					 I   V          Next note will use instrument I, with volume
+									V (if no volume on the next note).
+				N    I   V          Play new note N with new instrument I at new
+									volume V.
+
+				N            Dly    Play note N with delay using current
+				\					instrument and volume, currently playing
+									note is not changed.
+				N    I       Dly    Play note N with delay using instrument I at
+									default volume.
+			*/
+
+			volume := noNoteVolume
 
 			// If there is an instrument/sample number then reset the volume
-			// sample numbers are 1-based in MOD format
+			// sample numbers are 1-based in MOD & S3M formats
 			if sampNum > 0 && sampNum <= len(p.Song.Samples) {
 				smp := &p.Song.Samples[sampNum-1]
 
-				channel.volumeToPlay = smp.Volume
-				// channel.fineTune = smp.FineTune
-				channel.c4speed = smp.C4Speed
 				channel.sampleToPlay = sampNum - 1
-				channel.samplePosition = 0
+				volume = smp.Volume // Play at the instrument's volume
+
+				// If there is no note then stop the playing the current note
+				if pitch == 0 {
+					channel.sample = -1
+				}
 			}
+
+			// If the note has a volume then use that
+			if patnote.Volume != noNoteVolume {
+				volume = patnote.Volume
+			}
+
+			noteDelay := effect == effectExtended && param>>4 == effectExtendedNoteDelay
+			portaToNote := effect == effectPortaToNote
+			portaToNoteVolSlide := effect == effectPortaToNote
+			playImmediately := !portaToNote && !portaToNoteVolSlide && !noteDelay
 
 			// If there is a note pitch...
 			if pitch > 0 {
+				// Convert the pitch to a period
+				var period int
+				if channel.sampleToPlay >= 0 {
+					period = periodFromPlayerNote(pitch, p.Song.Samples[channel.sampleToPlay].C4Speed)
+				}
+
 				// ... save it away as the porta to note destination
-				channel.portaPeriod = periodFromPlayerNote(pitch, channel.c4speed)
+				channel.portaPeriod = period
 
 				// ... restart the sample if effect isn't 3, 5 or 0xEDx
-				if effect != effectPortaToNote && effect != effectPortaToNoteVolSlide &&
-					!(effect == 0xE && param>>4 == effectExtendedNoteDelay) {
-					channel.samplePosition = 0
-
-					// ... reset the period
-					// channel.period = (period * fineTuning[channel.fineTune]) >> 12
-
-					// convert the S3M note to a period
+				if playImmediately {
 					switch pitch {
 					case noteKeyOff:
-						channel.volume = 0 // set volume to 0
+						volume = 0 // set volume to 0
 					case 255:
 						// We should never get this because S3M loader remapped to 0
-					default:
-						channel.period = periodFromPlayerNote(pitch, channel.c4speed)
-						channel.volume = channel.volumeToPlay
 					}
 
 					// ... assign the new instrument if one was provided
-					channel.sample = channel.sampleToPlay
-					channel.tremoloPhase = 0
-					channel.vibratoPhase = 0
-					channel.trigOrder = p.order
-					channel.trigRow = p.row
+					c.triggerNote(period, channel.sampleToPlay)
+				} else {
+					channel.volumeToPlay = volume
+					channel.periodToPlay = period
 				}
 			}
+			if volume != noNoteVolume {
+				channel.volume = volume
+			}
+
 			channel.effect = effect
 			channel.param = param
 
+			// Reset on the new row
 			channel.vibratoAdjust = 0
 			channel.tremoloAdjust = 0
-
-			if patnote.Volume != 0xFF {
-				channel.volume = patnote.Volume
-			}
 
 			switch effect {
 			case effectPortaToNote:
@@ -832,6 +866,16 @@ func (p *Player) sequenceTick() bool {
 	return finished
 }
 
+func (c *channel) triggerNote(period, sample int) {
+	c.period = period
+	c.sample = sample
+	c.samplePosition = 0
+	c.tremoloPhase = 0
+	c.vibratoPhase = 0
+	c.trigOrder = p.order
+	c.trigRow = p.row
+}
+
 func (p *Player) mixChannels(nSamples, offset int) {
 	for ci := range p.channels {
 		channel := &p.channels[ci]
@@ -1014,7 +1058,7 @@ func (p *Player) rowDataIndex() int {
 func initNotePattern(n int) []note {
 	notes := make([]note, n)
 	for i := range notes {
-		notes[i].Volume = 0xFF
+		notes[i].Volume = noNoteVolume
 	}
 
 	return notes

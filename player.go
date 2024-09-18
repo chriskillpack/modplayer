@@ -434,7 +434,10 @@ func (p *Player) reset() {
 		channel := &p.channels[i]
 		channel.sample = -1
 		channel.sampleToPlay = -1
+		channel.volume = 0
 		channel.volumeToPlay = 0
+		channel.period = 0
+		channel.periodToPlay = 0
 		channel.tremoloDepth = 0
 		channel.tremoloSpeed = 0
 		channel.tremoloPhase = 0
@@ -648,7 +651,7 @@ func (p *Player) sequenceTick() bool {
 					}
 
 					// ... assign the new instrument if one was provided
-					c.triggerNote(period, channel.sampleToPlay)
+					channel.triggerNote(period, channel.sampleToPlay)
 				} else {
 					channel.volumeToPlay = volume
 					channel.periodToPlay = period
@@ -872,8 +875,9 @@ func (c *channel) triggerNote(period, sample int) {
 	c.samplePosition = 0
 	c.tremoloPhase = 0
 	c.vibratoPhase = 0
-	c.trigOrder = p.order
-	c.trigRow = p.row
+	// TODO
+	// c.trigOrder = p.order
+	// c.trigRow = p.row
 }
 
 func (p *Player) mixChannels(nSamples, offset int) {

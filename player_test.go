@@ -3,8 +3,6 @@ package modplayer
 import (
 	"bytes"
 	"os"
-	"strconv"
-	"strings"
 	"testing"
 )
 
@@ -113,44 +111,40 @@ func TestPlayerInitialState(t *testing.T) {
 }
 
 func TestTwoChannels(t *testing.T) {
-	player, err := newPlayerWithTestPattern([][]string{
+	plr := newPlayerWithTestPattern([][]string{
 		{"A-4 1 33 ...", "C#3 1 .. S12"},
-	})
-	if err != nil {
-		t.Fatalf("Could not create test player: %e", err)
-	}
+	}, t)
 	// Run one tick of the player
-	player.sequenceTick()
+	plr.sequenceTick()
 
-	if player.channels[0].sample != 0 {
+	c := &plr.channels[0]
+	if c.sample != 0 {
 		t.Errorf("Expected channel to be playing sample 0")
 	}
-	if player.channels[0].volume != 33 {
+	if c.volume != 33 {
 		t.Errorf("Channel has incorrect volume")
 	}
-	if player.channels[0].period != 4068 {
-		t.Errorf("expected channel to have period 4068, got %d", player.channels[0].period)
+	if c.period != 4068 {
+		t.Errorf("expected channel to have period 4068, got %d", c.period)
 	}
-	if player.channels[1].sample != 0 {
+
+	c = &plr.channels[1]
+	if c.sample != 0 {
 		t.Errorf("Expected channel to be playing sample 0")
 	}
-	if player.channels[1].volume != 63 {
+	if c.volume != 60 {
 		t.Errorf("Channel has incorrect volume")
 	}
-	if player.channels[1].period != 12924 {
-		t.Errorf("expected channel to have period 4068, got %d", player.channels[1].period)
+	if c.period != 12924 {
+		t.Errorf("expected channel to have period 4068, got %d", c.period)
 	}
 }
 
 func TestTriggerJustNoteNoPriorInstrument(t *testing.T) {
-	plr, err := newPlayerWithTestPattern([][]string{
+	plr := newPlayerWithTestPattern([][]string{
 		// With no prior instrument
 		{"A-4 .. .. ..."},
-	})
-	if err != nil {
-		t.Fatalf("Could not create test player: %e", err)
-	}
-	// Run one tick of the player
+	}, t)
 	plr.sequenceTick()
 
 	if plr.channels[0].sample != -1 {
@@ -159,23 +153,89 @@ func TestTriggerJustNoteNoPriorInstrument(t *testing.T) {
 }
 
 func TestTriggerJustNote(t *testing.T) {
-	plr, err := newPlayerWithTestPattern([][]string{
-		{"A-4 1 .. ..."}, // setup, an instrument was setup
-		{"B-4 .. .. ..."},
-	})
-	if err != nil {
-		t.Fatalf("Could not create test player: %e", err)
+	plr := newPlayerWithTestPattern([][]string{
+		{"A-4 1 .. ..."},  // setup: assign an instrument to the channel
+		{"B-4 .. .. ..."}, // test: play the new note with the existing instrument
+	}, t)
+	plr.sequenceTick()
+	advanceToNextRow(plr)
+
+	c := &plr.channels[0]
+	if c.period != 3624 {
+		t.Errorf("Expected period of 3624, got %d", c.period)
 	}
-	// Run one tick of the player
-	plr.sequenceTick()
-	plr.sequenceTick()
+	if c.sample != 0 {
+		t.Errorf("Expected sample 0")
+	}
+}
+
+func TestTriggerNoteInstrument(t *testing.T) {
+	plr := newPlayerWithTestPattern([][]string{
+		{"A-4 1 .. ..."}, // setup: assign an instrument to the channel
+	}, t)
 	plr.sequenceTick()
 
-	if plr.channels[0].period != 3624 {
-		t.Errorf("Expected period of 3624")
+	c := &plr.channels[0]
+	if c.sample != 0 {
+		t.Errorf("Expected sample 0")
 	}
-	if plr.channels[0].sample != 0 {
-		t.Errorf("Expected no sample")
+	if c.volume != 60 {
+		t.Errorf("Expected sample default volume")
+	}
+}
+
+func TestTriggerVolumeOnly(t *testing.T) {
+	plr := newPlayerWithTestPattern([][]string{
+		{"A-4  1 .. ..."}, // setup: assign an instrument to the channel
+		{"... .. 23 ..."}, // test: change channel volume
+	}, t)
+	plr.sequenceTick()
+
+	// Setup - make sure that the channel has a volume on it
+	if plr.channels[0].volume != 60 {
+		t.Errorf("Expected sample default volume")
+	}
+
+	advanceToNextRow(plr)
+
+	if plr.channels[0].volume != 23 {
+		t.Errorf("Expected channel volume 23")
+	}
+}
+
+func TestTriggerNoteAndVolume(t *testing.T) {
+	plr := newPlayerWithTestPattern([][]string{
+		{"A-4  1 .. ..."}, // setup: assign an instrument to the channel
+		{"B-4 .. 23 ..."}, // test: change channel volume
+	}, t)
+	plr.sequenceTick()
+	advanceToNextRow(plr)
+
+	c := &plr.channels[0]
+	if c.sample != 0 {
+		t.Error("Expected sample 0")
+	}
+	if c.period != 3624 {
+		t.Errorf("Expected period of 3624, got %d", c.period)
+	}
+	if c.volume != 23 {
+		t.Error("Expected channel volume 23")
+	}
+}
+
+func TestTriggerInsAndVolume(t *testing.T) {
+	t.Skip("Incomplete and not passing")
+
+	plr := newPlayerWithTestPattern([][]string{
+		{"A-4  1 .. ..."}, // setup: assign an instrument to the channel
+		{"...  2 20 ..."}, // next note should use instrument 2 and volume 20
+	}, t)
+	plr.sequenceTick()
+	advanceToNextRow(plr)
+
+	c := &plr.channels[0]
+	if c.sample != 1 {
+		t.Errorf("WUT %d", c.sample)
 	}
 }
 
@@ -191,139 +251,4 @@ func BenchmarkMixChannels(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		player.GenerateAudio(out) // internally this calls MixChannels
 	}
-}
-
-func newTestPlayerFromMod(file string) (*Player, error) {
-	mod, err := os.ReadFile(file)
-	if err != nil {
-		return nil, err
-	}
-	song, err := NewMODSongFromBytes(mod)
-	if err != nil {
-		return nil, err
-	}
-	player, err := NewPlayer(song, 44100)
-	if err != nil {
-		return nil, err
-	}
-	return player, nil
-}
-
-func newPlayerWithTestPattern(pattern [][]string) (*Player, error) {
-	noteData, nChannels := convertTestPatternData(pattern)
-
-	song := &Song{
-		Title:        "testsong",
-		Channels:     nChannels,
-		GlobalVolume: 64,
-		Speed:        2,
-		Tempo:        125,
-		Orders:       []byte{0},
-		Samples: []Sample{
-			{
-				Name:    "testins1",
-				Volume:  63,
-				C4Speed: 8363,
-			},
-		},
-		patterns: noteData,
-	}
-	player, err := NewPlayer(song, 44100)
-	if err != nil {
-		return nil, err
-	}
-	player.Start()
-	return player, err
-}
-
-// Takes input of the form
-// A-4 12 22 S34  - play A-4 with instrument 12, at volume 22 with S3M effect S with parameter 34
-// ... .. 11 ...  - set volume to 11
-// ^^^ .. .. ...  - note off
-// <empty string> - skip
-func convertTestPatternData(pattern [][]string) ([][]note, int) {
-	nChannels := len(pattern[0])
-
-	notes := make([][]note, 1)
-	notes[0] = make([]note, nChannels*len(pattern))
-
-	// Parse each row of input
-	for r, row := range pattern {
-		for c, col := range row {
-			note := &notes[0][r*nChannels+c]
-
-			if col == "" {
-				// All the other fields are already initialized to 0
-				note.Volume = noNoteVolume
-				continue
-			}
-
-			// Decode note
-			parts := colToParts(col)
-			note.Pitch = decodeNote(parts[0])
-			note.Sample = decodeInt(parts[1], 0)
-			note.Volume = decodeInt(parts[2], noNoteVolume)
-			note.Effect, note.Param = decodeEffect(parts[3])
-		}
-	}
-
-	return notes, nChannels
-}
-
-func colToParts(s string) []string {
-	result := strings.Split(s, " ")
-
-	filtered := []string{}
-	for _, r := range result {
-		if r == "" {
-			continue
-		}
-		filtered = append(filtered, r)
-	}
-
-	return filtered
-}
-
-func decodeNote(note string) playerNote {
-	// note is of the form A-2, A#2, ^^. or ...
-	if note == "^^." {
-		return playerNote(noteKeyOff)
-	} else if note == "..." {
-		return playerNote(0)
-	}
-
-	ni := 0
-	for ni = range notes {
-		if notes[ni] == note[0:2] {
-			break
-		}
-	}
-
-	oct := int(note[2] - '2')
-	return playerNote(12 + 12*oct + ni)
-}
-
-func decodeInt(sample string, replacement int) int {
-	if sample == "" || sample == ".." {
-		return replacement
-	}
-
-	ival, err := strconv.Atoi(sample)
-	if err != nil {
-		panic(err)
-	}
-
-	return ival
-}
-
-func decodeEffect(effect string) (byte, byte) {
-	if effect == "" || effect == "..." {
-		return 0, 0
-	}
-
-	param, err := strconv.ParseInt(effect[1:3], 16, 8)
-	if err != nil {
-		panic(err)
-	}
-	return convertS3MEffect(effect[0]-'A', byte(param))
 }

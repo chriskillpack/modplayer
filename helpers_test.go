@@ -26,6 +26,7 @@ func newTestPlayerFromMod(file string) (*Player, error) {
 func newPlayerWithTestPattern(pattern [][]string, t *testing.T) *Player {
 	noteData, nChannels := convertTestPatternData(pattern)
 
+	sampLength := 1000
 	song := &Song{
 		Title:        "testsong",
 		Channels:     nChannels,
@@ -38,11 +39,15 @@ func newPlayerWithTestPattern(pattern [][]string, t *testing.T) *Player {
 				Name:    "testins1",
 				Volume:  60,
 				C4Speed: 8363,
+				Length:  sampLength,
+				Data:    make([]int8, sampLength),
 			},
 			{
 				Name:    "testins2",
 				Volume:  55,
-				C4Speed: 6383,
+				C4Speed: 8363,
+				Length:  sampLength,
+				Data:    make([]int8, sampLength),
 			},
 		},
 		patterns: noteData,
@@ -90,6 +95,8 @@ func convertTestPatternData(pattern [][]string) ([][]note, int) {
 	return notes, nChannels
 }
 
+// Advances to next row in the pattern, will have processed the first tick
+// of the next row on return.
 func advanceToNextRow(plr *Player) {
 	old := plr.row
 	for old == plr.row {

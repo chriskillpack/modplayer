@@ -72,7 +72,9 @@ func main() {
 	}
 
 	player.Mute = *flagMute
-	player.SeekTo(*flagStartOrd, 0)
+	if *flagStartOrd > 0 {
+		player.SeekTo(*flagStartOrd, 0)
+	}
 
 	wavF, err := os.Create(*flagWAVOut)
 	if err != nil {

@@ -383,7 +383,8 @@ func (p *Player) SeekTo(order, row int) {
 	} else if row >= 64 {
 		row = 63
 	}
-	p.row = row
+	p.row = row - 1
+	p.tick = p.Speed - 1
 }
 
 // SetVolumeBoost sets the volume boost factor to a value between 1 (no boost,
@@ -428,7 +429,12 @@ func (p *Player) reset() {
 	p.setTempo(p.Song.Tempo)
 	p.Speed = p.Song.Speed
 	p.order = 0
-	p.row = 0
+
+	// Setup counters so that the first "tick" of the player executes the
+	// first row immediately.
+	p.tick = p.Speed - 1
+	p.row = -1
+	p.tickSamplePos = p.samplesPerTick
 
 	for i := 0; i < p.Song.Channels; i++ {
 		channel := &p.channels[i]
@@ -453,6 +459,7 @@ func (p *Player) reset() {
 }
 
 func (p *Player) setTempo(tempo int) {
+	// TODO: What to do if new samplesPerTick value is now < tickSamplePos?
 	p.samplesPerTick = int((p.samplingFrequency<<1)+(p.samplingFrequency>>1)) / tempo
 	p.Tempo = tempo
 }
@@ -557,9 +564,21 @@ func (p *Player) channelTick(c *channel, ci, tick int) {
 func (p *Player) sequenceTick() bool {
 	finished := false
 
-	p.tick--
-	if p.tick <= 0 {
-		p.tick = p.Speed
+	p.tick++
+	if p.tick >= p.Speed {
+		p.tick = 0
+
+		p.row++
+		if p.row >= 64 {
+			p.row = 0
+			p.order++
+
+			if p.order >= len(p.Song.Orders) {
+				// End of the song reached, reset player state and stop
+				finished = true
+				p.reset()
+			}
+		}
 
 		pattern := int(p.Song.Orders[p.order])
 		rowDataIdx := p.rowDataIndex()
@@ -593,7 +612,8 @@ func (p *Player) sequenceTick() bool {
 				N        V          Play new note N at volume V with existing
 									instrument on channel.
 					 I   V          Next note will use instrument I, with volume
-									V (if no volume on the next note).
+									V (if no volume on the next note). Any
+									currently playing instrument is stopped.
 				N    I   V          Play new note N with new instrument I at new
 									volume V.
 
@@ -692,7 +712,8 @@ func (p *Player) sequenceTick() bool {
 					p.setTempo(int(param))
 				} else {
 					p.Speed = int(param)
-					p.tick = p.Speed
+					// TODO - what to do with p.tick here?
+					//p.tick = p.Speed
 				}
 			case effectSetPanPosition:
 				// TODO - support surround which is 0xA4?
@@ -706,12 +727,26 @@ func (p *Player) sequenceTick() bool {
 			// case effectSetVolume:
 			// 	channel.volume = int(param)
 			case effectJumpToPattern:
+				// TODO - this effect currently activates on tick 0 and before
+				// the rest of the channels have been processed. Experimentation
+				// shows that this should activate on the last intermediate tick
+				// and probably after all channels have been processed.
 				p.order = int(param)
 				if p.order >= len(p.Orders) {
 					p.order = len(p.Orders) - 1
 				}
-				p.row = -1
+				// TODO - what to do with p.tick here?
+				p.row = 0
 			case effectPatternBrk:
+				// TODO - this effect currently activates on tick 0 and before
+				// the rest of the channels have been processed. Experimentation
+				// shows that this should activate on the last intermediate tick
+				// and probably after all channels have been processed.
+
+				// TODO - handle edge cases of multiple pattern break effects in
+				// a row (only advance one time) and case of both Jump to
+				// Pattern and Pattern Break in same row
+
 				// Advance to the next pattern in the order unless we are on the
 				// last pattern, in which case we stay on this pattern. This
 				// behavior matches MilkyTracker.
@@ -730,6 +765,7 @@ func (p *Player) sequenceTick() bool {
 				if p.row >= 64 {
 					p.row = -1
 				}
+				// TODO - what to do with p.tick here?
 			case effectPatternLoop:
 				if param == 0 {
 					p.loop[i].start = p.row
@@ -846,18 +882,6 @@ func (p *Player) sequenceTick() bool {
 
 		if loopChannel >= 0 {
 			p.row = p.loop[loopChannel].start - 1 // -1 for the ++ below
-		}
-
-		p.row++
-		if p.row >= 64 {
-			p.row = 0
-			p.order++
-
-			if p.order >= len(p.Song.Orders) {
-				// End of the song reached, reset player state and stop
-				finished = true
-				p.reset()
-			}
 		}
 	} else {
 		// channel tick
@@ -1009,6 +1033,9 @@ func (p *Player) GenerateAudio(out []int16) int {
 	// Zero out the portion of the mixbuffer that will be written to.
 	clear(p.mixbuffer[0:len(out)])
 
+	// TODO - rewrite this logic so that it calls sequenceTick correctly.
+	// Currently this calls mixChannels first which means on the first call
+	// it creates silence because the player has not ticked onto row 0.
 	for count > 0 {
 		remain := p.samplesPerTick - p.tickSamplePos
 		if remain > count {

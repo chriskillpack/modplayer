@@ -180,8 +180,7 @@ func TestTriggerInsOnly(t *testing.T) {
 		{"A-4  1 .. ..."}, // setup: start a note playing
 		{"...  2 .. ..."}, // instrument only should stop currently playing instrument as well
 	}, t)
-	plr.GenerateAudio(mixBuffer[0 : 1*2])                        // initial kick to get the player moving
-	plr.GenerateAudio(mixBuffer[0 : (2*plr.samplesPerTick-2)*2]) // advance to 1 sample before end of second tick
+	plr.GenerateAudio(mixBuffer[0 : (2*plr.samplesPerTick-1)*2]) // advance to 1 sample before end of second tick
 
 	c := &plr.channels[0]
 	if c.sampleToPlay != 0 {
@@ -192,7 +191,7 @@ func TestTriggerInsOnly(t *testing.T) {
 		t.Error("Expected progress to have been made through sample")
 	}
 
-	plr.GenerateAudio(mixBuffer[0 : 1*2]) // advance to beginning of second row
+	plr.GenerateAudio(mixBuffer[0 : 2*2]) // advance to beginning of second row
 	if plr.row != 1 {
 		t.Error("Player did not advance to second row")
 	}

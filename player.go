@@ -1026,10 +1026,6 @@ func (p *Player) GenerateAudio(out []int16) int {
 		panic(fmt.Sprintf("Mixbuffer too small %d wanted %d size", len(out), len(p.mixbuffer)))
 	}
 
-	count := len(out) / 2 // L&R samples are interleaved, so out length 2 is asking for one stereo sample
-	offset := 0
-	generated := 0
-
 	// Zero out the portion of the mixbuffer that will be written to.
 	// The compiler will identify the range loop form and replace with a
 	// runtime.memclrNoHeapPointers call which has architecture specific
@@ -1038,26 +1034,27 @@ func (p *Player) GenerateAudio(out []int16) int {
 		p.mixbuffer[i] = 0
 	}
 
-	// TODO - rewrite this logic so that it calls sequenceTick correctly.
-	// Currently this calls mixChannels first which means on the first call
-	// it creates silence because the player has not ticked onto row 0.
+	count := len(out) / 2 // L&R samples are interleaved, so out length 2 is asking for one stereo sample
+	offset := 0
+	generated := 0
+
 	for count > 0 {
+		if p.tickSamplePos == p.samplesPerTick {
+			if p.sequenceTick() {
+				break // song finished, exit
+			}
+			p.tickSamplePos = 0
+		}
+
 		remain := p.samplesPerTick - p.tickSamplePos
 		if remain > count {
 			remain = count
 		}
-
 		p.mixChannels(remain, offset)
-		offset += remain
-		generated += remain
 
 		p.tickSamplePos += remain
-		if p.tickSamplePos == p.samplesPerTick {
-			if p.sequenceTick() {
-				count = remain // song finished, exit
-			}
-			p.tickSamplePos = 0
-		}
+		offset += remain
+		generated += remain
 		count -= remain
 	}
 

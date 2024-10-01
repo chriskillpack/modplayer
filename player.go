@@ -553,7 +553,7 @@ func (p *Player) channelTick(c *channel, ci, tick int) {
 			}
 		case effectExtendedNoteDelay:
 			if c.effectCounter == int(c.param&0xF) {
-				c.triggerNote(c.periodToPlay, c.sampleToPlay)
+				c.triggerNote(c.periodToPlay, c.sampleToPlay, p.order, p.row)
 				c.volume = c.volumeToPlay
 			}
 		}
@@ -671,7 +671,7 @@ func (p *Player) sequenceTick() bool {
 					}
 
 					// ... assign the new instrument if one was provided
-					channel.triggerNote(period, channel.sampleToPlay)
+					channel.triggerNote(period, channel.sampleToPlay, p.order, p.row)
 				} else {
 					channel.volumeToPlay = volume
 					channel.periodToPlay = period
@@ -893,15 +893,14 @@ func (p *Player) sequenceTick() bool {
 	return finished
 }
 
-func (c *channel) triggerNote(period, sample int) {
+func (c *channel) triggerNote(period, sample, order, row int) {
 	c.period = period
 	c.sample = sample
 	c.samplePosition = 0
 	c.tremoloPhase = 0
 	c.vibratoPhase = 0
-	// TODO
-	// c.trigOrder = p.order
-	// c.trigRow = p.row
+	c.trigOrder = order
+	c.trigRow = row
 }
 
 func (p *Player) mixChannels(nSamples, offset int) {

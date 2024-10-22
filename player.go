@@ -959,13 +959,7 @@ func (p *Player) GenerateAudio(out []int16) int {
 	generated := 0
 
 	// Zero out the portion of the mixbuffer that will be written to.
-	// The compiler will identify the range loop form and replace with a
-	// runtime.memclrNoHeapPointers call which has architecture specific
-	// optimizations.
-	mb := p.mixbuffer[0:len(out)]
-	for i := range mb {
-		mb[i] = 0
-	}
+	clear(p.mixbuffer[0:len(out)])
 
 	for count > 0 {
 		remain := p.samplesPerTick - p.tickSamplePos

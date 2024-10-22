@@ -6,11 +6,13 @@ import (
 	"testing"
 )
 
-var mixBuffer []int16
+var mixBuffer = make([]int16, 10*1024*2)
 
-func init() {
-	mixBuffer = make([]int16, 10*1024*2)
-}
+const (
+	periodA4 = 4068
+	periodB4 = 3624
+	periodC3 = 13696
+)
 
 func TestLoadMODSong(t *testing.T) {
 	mod, err := os.ReadFile("mods/space_debris.mod")
@@ -118,7 +120,7 @@ func TestPlayerInitialState(t *testing.T) {
 
 func TestTwoChannels(t *testing.T) {
 	plr := newPlayerWithTestPattern([][]string{
-		{"A-4 1 33 ...", "C#3 1 .. S12"},
+		{"A-4 1 33 ...", "C-3 1 .. S12"},
 	}, t)
 	// Run one tick of the player
 	plr.sequenceTick()
@@ -130,8 +132,8 @@ func TestTwoChannels(t *testing.T) {
 	if c.volume != 33 {
 		t.Errorf("Channel has incorrect volume")
 	}
-	if c.period != 4068 {
-		t.Errorf("expected channel to have period 4068, got %d", c.period)
+	if c.period != periodA4 {
+		t.Errorf("expected channel to have period %d, got %d", periodA4, c.period)
 	}
 
 	c = &plr.channels[1]
@@ -141,8 +143,8 @@ func TestTwoChannels(t *testing.T) {
 	if c.volume != 60 {
 		t.Errorf("Channel has incorrect volume")
 	}
-	if c.period != 12924 {
-		t.Errorf("expected channel to have period 4068, got %d", c.period)
+	if c.period != periodC3 {
+		t.Errorf("expected channel to have period %d, got %d", periodC3, c.period)
 	}
 }
 
@@ -167,8 +169,8 @@ func TestTriggerNoteOnly(t *testing.T) {
 	advanceToNextRow(plr)
 
 	c := &plr.channels[0]
-	if c.period != 3624 {
-		t.Errorf("Expected period of 3624, got %d", c.period)
+	if c.period != periodB4 {
+		t.Errorf("Expected period of %d, got %d", periodB4, c.period)
 	}
 	if c.sample != 0 {
 		t.Errorf("Expected sample 0")
@@ -246,8 +248,8 @@ func TestTriggerNoteAndVolume(t *testing.T) {
 	if c.sample != 0 {
 		t.Error("Expected sample 0")
 	}
-	if c.period != 3624 {
-		t.Errorf("Expected period of 3624, got %d", c.period)
+	if c.period != periodB4 {
+		t.Errorf("Expected period of %d, got %d", periodB4, c.period)
 	}
 	if c.volume != 23 {
 		t.Error("Expected channel volume 23")
@@ -275,11 +277,29 @@ func TestTriggerInsAndVolume(t *testing.T) {
 	if c.sample != 1 {
 		t.Errorf("Expected sample 2 to be playing but instead %d", c.sample)
 	}
-	if c.period != 3624 {
-		t.Errorf("Expected note pitch of B-4, got %d", c.period)
+	if c.period != periodB4 {
+		t.Errorf("Expected note pitch of %d, got %d", periodB4, c.period)
 	}
 	if c.volume != 20 {
 		t.Errorf("Expected volume 20 to have been applied to playing note")
+	}
+}
+
+func TestTriggerNoteVolumeInstrument(t *testing.T) {
+	plr := newPlayerWithTestPattern([][]string{
+		{"A-4  1  20 ..."},
+	}, t)
+	plr.sequenceTick()
+
+	c := &plr.channels[0]
+	if c.sample != 0 {
+		t.Error("Expecting sample 1 to be on channel", c.sample)
+	}
+	if c.period != periodA4 {
+		t.Errorf("Expecting note pitch of %d, got %d", periodA4, c.period)
+	}
+	if c.volume != 20 {
+		t.Errorf("Expected volume 20 on the note")
 	}
 }
 

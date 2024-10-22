@@ -962,8 +962,9 @@ func (p *Player) GenerateAudio(out []int16) int {
 	// The compiler will identify the range loop form and replace with a
 	// runtime.memclrNoHeapPointers call which has architecture specific
 	// optimizations.
-	for i := range p.mixbuffer[0:len(out)] {
-		p.mixbuffer[i] = 0
+	mb := p.mixbuffer[0:len(out)]
+	for i := range mb {
+		mb[i] = 0
 	}
 
 	for count > 0 {

@@ -589,11 +589,14 @@ func (p *Player) sequenceTick() bool {
 			channel := &p.channels[i]
 
 			channel.effectCounter = 0
+
 			patnote := &p.Song.patterns[pattern][rowDataIdx]
 			sampNum := patnote.Sample
 			pitch := patnote.Pitch
 			effect := byte(patnote.Effect)
 			param := byte(patnote.Param)
+
+			notePresent := pitch > 0
 
 			/*
 				Note triggering behavior, from experimentation in ST3
@@ -605,7 +608,9 @@ func (p *Player) sequenceTick() bool {
 									instrument cleared at beginning of song, not
 									each pattern transition.
 					 I              Next note will use instrument I, stops
-									currently playing instrument.
+									currently playing instrument if different.
+									If the same then the instrument continues
+									playing with the volume at the default.
 				N    I              Play new note N with new instrument I, at
 									instrument default volume.
 						 V          Adjust channel volume to V.
@@ -634,8 +639,9 @@ func (p *Player) sequenceTick() bool {
 				channel.sampleToPlay = sampNum - 1
 				volume = smp.Volume // Play at the instrument's volume
 
-				// If there is no note then stop the playing the current note
-				if pitch == 0 {
+				// If there is no note and the instrument isn't the same as the active
+				// instrument then stop the playing the current note.
+				if !notePresent && channel.sample != (sampNum-1) {
 					channel.sample = -1
 				}
 			}
@@ -651,7 +657,7 @@ func (p *Player) sequenceTick() bool {
 			playImmediately := !portaToNote && !portaToNoteVolSlide && !noteDelay
 
 			// If there is a note pitch...
-			if pitch > 0 {
+			if notePresent {
 				// Convert the pitch to a period
 				var period int
 				if channel.sampleToPlay >= 0 {
@@ -673,11 +679,13 @@ func (p *Player) sequenceTick() bool {
 					// ... assign the new instrument if one was provided
 					channel.triggerNote(period, channel.sampleToPlay, p.order, p.row)
 				} else {
-					channel.volumeToPlay = volume
+					if volume != noNoteVolume {
+						channel.volumeToPlay = volume
+					}
 					channel.periodToPlay = period
 				}
 			}
-			if volume != noNoteVolume {
+			if playImmediately && volume != noNoteVolume {
 				channel.volume = volume
 			}
 

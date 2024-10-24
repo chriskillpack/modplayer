@@ -103,15 +103,10 @@ func TestPlayerInitialState(t *testing.T) {
 
 	for i := 0; i < player.Song.Channels; i++ {
 		c := &player.channels[i]
-		if c.sample != -1 {
-			t.Errorf("Expected channel %d to have sample -1, got %d\n", i, c.sample)
-		}
-		if c.period != 0 {
-			t.Errorf("Expected channel %d to have period 0, got %d\n", i, c.period)
-		}
-		if c.volume != 0 {
-			t.Errorf("Expected channel %d to have volume 0, got %d\n", i, c.volume)
-		}
+
+		validateChan(c, -1, 0, 0, t)
+		validateChanToPlay(c, -1, 0, 0, t)
+
 		if c.pan != int(player.Song.pan[i]) {
 			t.Errorf("Expected channel %d to have pan %d, got %d\n", i, player.Song.pan[i], c.pan)
 		}
@@ -125,27 +120,8 @@ func TestTwoChannels(t *testing.T) {
 	// Run one tick of the player
 	plr.sequenceTick()
 
-	c := &plr.channels[0]
-	if c.sample != 0 {
-		t.Errorf("Expected channel to be playing sample 0")
-	}
-	if c.volume != 33 {
-		t.Errorf("Channel has incorrect volume")
-	}
-	if c.period != periodA4 {
-		t.Errorf("expected channel to have period %d, got %d", periodA4, c.period)
-	}
-
-	c = &plr.channels[1]
-	if c.sample != 0 {
-		t.Errorf("Expected channel to be playing sample 0")
-	}
-	if c.volume != 60 {
-		t.Errorf("Channel has incorrect volume")
-	}
-	if c.period != periodC3 {
-		t.Errorf("expected channel to have period %d, got %d", periodC3, c.period)
-	}
+	validateChan(&plr.channels[0], 0, periodA4, 33, t)
+	validateChan(&plr.channels[1], 0, periodC3, 60, t)
 }
 
 func TestTriggerJustNoteNoPriorInstrument(t *testing.T) {
@@ -155,9 +131,7 @@ func TestTriggerJustNoteNoPriorInstrument(t *testing.T) {
 	}, t)
 	plr.sequenceTick()
 
-	if plr.channels[0].sample != -1 {
-		t.Errorf("Expected no sample")
-	}
+	validateChan(&plr.channels[0], -1, 0, 0, t)
 }
 
 func TestTriggerNoteOnly(t *testing.T) {
@@ -168,16 +142,10 @@ func TestTriggerNoteOnly(t *testing.T) {
 	plr.sequenceTick()
 	advanceToNextRow(plr)
 
-	c := &plr.channels[0]
-	if c.period != periodB4 {
-		t.Errorf("Expected period of %d, got %d", periodB4, c.period)
-	}
-	if c.sample != 0 {
-		t.Errorf("Expected sample 0")
-	}
+	validateChan(&plr.channels[0], 0, periodB4, 60, t)
 }
 
-func TestTriggerInsOnly(t *testing.T) {
+func TestTriggerInsOnlyDiffIns(t *testing.T) {
 	plr := newPlayerWithTestPattern([][]string{
 		{"A-4  1 .. ..."}, // setup: start a note playing
 		{"...  2 .. ..."}, // instrument only should stop currently playing instrument as well
@@ -202,19 +170,27 @@ func TestTriggerInsOnly(t *testing.T) {
 	}
 }
 
+func TestTriggerInsOnlySameIns(t *testing.T) {
+	plr := newPlayerWithTestPattern([][]string{
+		{"A-4  1 15 ..."}, // setup: start a note playing
+		{"...  1 .. ..."}, // instrument only, continue playing original note at instrument default volume
+	}, t)
+	plr.GenerateAudio(mixBuffer[0 : (2*plr.samplesPerTick-1)*2]) // advance to 1 sample before end of second tick
+
+	c := &plr.channels[0]
+	validateChan(c, 0, periodA4, 15, t)
+
+	plr.GenerateAudio(mixBuffer[0 : 2*2]) // advance to beginning of second row
+	validateChan(c, 0, periodA4, 60, t)
+}
+
 func TestTriggerNoteInstrument(t *testing.T) {
 	plr := newPlayerWithTestPattern([][]string{
 		{"A-4 1 .. ..."}, // setup: assign an instrument to the channel
 	}, t)
 	plr.sequenceTick()
 
-	c := &plr.channels[0]
-	if c.sample != 0 {
-		t.Errorf("Expected sample 0")
-	}
-	if c.volume != 60 {
-		t.Errorf("Expected sample default volume")
-	}
+	validateChan(&plr.channels[0], 0, periodA4, 60, t)
 }
 
 func TestTriggerVolumeOnly(t *testing.T) {
@@ -225,15 +201,12 @@ func TestTriggerVolumeOnly(t *testing.T) {
 	plr.sequenceTick()
 
 	// Setup - make sure that the channel has a volume on it
-	if plr.channels[0].volume != 60 {
-		t.Errorf("Expected sample default volume")
-	}
+	c := &plr.channels[0]
+	validateChan(c, 0, periodA4, 60, t)
 
 	advanceToNextRow(plr)
 
-	if plr.channels[0].volume != 23 {
-		t.Errorf("Expected channel volume 23")
-	}
+	validateChan(c, 0, periodA4, 23, t)
 }
 
 func TestTriggerNoteAndVolume(t *testing.T) {
@@ -244,16 +217,7 @@ func TestTriggerNoteAndVolume(t *testing.T) {
 	plr.sequenceTick()
 	advanceToNextRow(plr)
 
-	c := &plr.channels[0]
-	if c.sample != 0 {
-		t.Error("Expected sample 0")
-	}
-	if c.period != periodB4 {
-		t.Errorf("Expected period of %d, got %d", periodB4, c.period)
-	}
-	if c.volume != 23 {
-		t.Error("Expected channel volume 23")
-	}
+	validateChan(&plr.channels[0], 0, periodB4, 23, t)
 }
 
 func TestTriggerInsAndVolume(t *testing.T) {
@@ -274,15 +238,7 @@ func TestTriggerInsAndVolume(t *testing.T) {
 
 	// Advance to third row and verify that the played note is using sample 2.
 	advanceToNextRow(plr)
-	if c.sample != 1 {
-		t.Errorf("Expected sample 2 to be playing but instead %d", c.sample)
-	}
-	if c.period != periodB4 {
-		t.Errorf("Expected note pitch of %d, got %d", periodB4, c.period)
-	}
-	if c.volume != 20 {
-		t.Errorf("Expected volume 20 to have been applied to playing note")
-	}
+	validateChan(c, 1, periodB4, 20, t)
 }
 
 func TestTriggerNoteVolumeInstrument(t *testing.T) {
@@ -291,16 +247,37 @@ func TestTriggerNoteVolumeInstrument(t *testing.T) {
 	}, t)
 	plr.sequenceTick()
 
+	validateChan(&plr.channels[0], 0, periodA4, 20, t)
+}
+
+func TestTriggerNDNote(t *testing.T) {
+	t.Skip("Failing")
+
+	plr := newPlayerWithTestPattern([][]string{
+		{"B-4  1 .. ..."}, // setup: channel already playing a note
+		{"A-4 .. .. SD1"}, // line under test
+	}, t)
+	plr.sequenceTick()
+
+	// Nothing should be playing
 	c := &plr.channels[0]
-	if c.sample != 0 {
-		t.Error("Expecting sample 1 to be on channel", c.sample)
-	}
-	if c.period != periodA4 {
-		t.Errorf("Expecting note pitch of %d, got %d", periodA4, c.period)
-	}
-	if c.volume != 20 {
-		t.Errorf("Expected volume 20 on the note")
-	}
+	validateChan(c, 0, periodB4, 60, t)
+
+	advanceToNextRow(plr)
+
+	validateChan(c, 0, periodB4, 60, t)
+
+	// Check that things are queued up
+	validateChanToPlay(c, 0, periodA4, 60, t)
+}
+
+func TestTriggerNDNoteIns(t *testing.T) {
+	t.Skip("Incomplete")
+
+	plr := newPlayerWithTestPattern([][]string{
+		{"A-4  1 .. SD1"},
+	}, t)
+	_ = plr
 }
 
 func BenchmarkMixChannels(b *testing.B) {

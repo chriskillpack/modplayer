@@ -155,9 +155,33 @@ func decodeEffect(effect string) (byte, byte) {
 		return 0, 0
 	}
 
-	param, err := strconv.ParseInt(effect[1:3], 16, 8)
+	param, err := strconv.ParseInt(effect[1:3], 16, 16)
 	if err != nil {
 		panic(err)
 	}
-	return convertS3MEffect(effect[0]-'A', byte(param))
+	return convertS3MEffect(effect[0]-'A'+1, byte(param))
+}
+
+func validateChan(c *channel, sample, period, volume int, t *testing.T) {
+	if c.sample != sample {
+		t.Errorf("Expecting sample %d, got %d", sample, c.sample)
+	}
+	if c.period != period {
+		t.Errorf("Expected period %d, got %d", period, c.period)
+	}
+	if c.volume != volume {
+		t.Errorf("Expected volume %d, got %d", volume, c.volume)
+	}
+}
+
+func validateChanToPlay(c *channel, sample, period, volume int, t *testing.T) {
+	if c.sampleToPlay != sample {
+		t.Errorf("Expected sample %d to be queued up, got %d", sample, c.sampleToPlay)
+	}
+	if c.periodToPlay != period {
+		t.Errorf("Expected period %d to be queued up, got %d", period, c.periodToPlay)
+	}
+	if c.volumeToPlay != volume {
+		t.Errorf("Expected volume %d to be queued, got %d", volume, c.volumeToPlay)
+	}
 }

@@ -251,24 +251,31 @@ func TestTriggerNoteVolumeInstrument(t *testing.T) {
 }
 
 func TestTriggerNDNote(t *testing.T) {
-	t.Skip("Failing")
-
 	plr := newPlayerWithTestPattern([][]string{
 		{"B-4  1 .. ..."}, // setup: channel already playing a note
 		{"A-4 .. .. SD1"}, // line under test
+		{"... .. .. ..."}, // empty line to allow player advance
 	}, t)
 	plr.sequenceTick()
 
-	// Nothing should be playing
+	// Note should be playing with default volume
 	c := &plr.channels[0]
 	validateChan(c, 0, periodB4, 60, t)
 
+	// Advance to second row
 	advanceToNextRow(plr)
 
+	// The A-4 note has a note delay on it which hasn't expired yet so the B-4
+	// should still be playing
 	validateChan(c, 0, periodB4, 60, t)
 
-	// Check that things are queued up
+	// Next, check that the A-4 is queued up and ready to play
 	validateChanToPlay(c, 0, periodA4, 60, t)
+
+	// Finally run the player forward until note delay has elapsed and check
+	// that the delayed note is now playing
+	advanceToNextRow(plr)
+	validateChan(c, 0, periodA4, 60, t)
 }
 
 func TestTriggerNDNoteIns(t *testing.T) {

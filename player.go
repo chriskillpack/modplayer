@@ -593,8 +593,8 @@ func (p *Player) sequenceTick() bool {
 			patnote := &p.Song.patterns[pattern][rowDataIdx]
 			sampNum := patnote.Sample
 			pitch := patnote.Pitch
-			effect := byte(patnote.Effect)
-			param := byte(patnote.Param)
+			effect := patnote.Effect
+			param := patnote.Param
 
 			notePresent := pitch > 0
 
@@ -681,10 +681,14 @@ func (p *Player) sequenceTick() bool {
 				} else {
 					if volume != noNoteVolume {
 						channel.volumeToPlay = volume
+					} else {
+						channel.volumeToPlay = channel.volume
 					}
 					channel.periodToPlay = period
 				}
 			}
+
+			// This goes here because sometimes we don't have a note
 			if playImmediately && volume != noNoteVolume {
 				channel.volume = volume
 			}

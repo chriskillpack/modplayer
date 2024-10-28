@@ -279,12 +279,58 @@ func TestTriggerNDNote(t *testing.T) {
 }
 
 func TestTriggerNDNoteIns(t *testing.T) {
-	t.Skip("Incomplete")
-
 	plr := newPlayerWithTestPattern([][]string{
 		{"A-4  1 .. SD1"},
 	}, t)
-	_ = plr
+	plr.sequenceTick()
+
+	// Nothing should be playing but the new note should be queued up
+	c := &plr.channels[0]
+	validateChan(c, -1, 0, 0, t)
+	validateChanToPlay(c, 0, periodA4, 60, t)
+
+	// Tick the player, note delay should have expired
+	plr.sequenceTick()
+	validateChan(c, 0, periodA4, 60, t)
+}
+
+func TestTriggerNDVolOnly(t *testing.T) {
+	plr := newPlayerWithTestPattern([][]string{
+		{"A-4  1 .. ..."}, // setup: start a note playing
+		{"... .. 15 SD1"}, // change volume with note delay
+		{"... .. .. ..."}, // empty row so we can advance to it
+	}, t)
+	plr.sequenceTick()
+
+	// Note should be playing
+	c := &plr.channels[0]
+	validateChan(c, 0, periodA4, 60, t)
+
+	// On next row the note should continue to be playing with the same
+	// volume, and then volume change should be queued up.
+	advanceToNextRow(plr)
+	validateChan(c, 0, periodA4, 60, t)
+	validateChanToPlay(c, 0, periodA4, 15, t)
+
+	// After the note delay expires the channel should have the new volume
+	plr.sequenceTick()
+	validateChan(c, 0, periodA4, 15, t)
+}
+
+func TestNoteOff(t *testing.T) {
+	plr := newPlayerWithTestPattern([][]string{
+		{"A-4  1 .. ..."}, // setup: play a note
+		{"^^. .. .. ..."}, // key off
+	}, t)
+	plr.sequenceTick()
+
+	// Note should be playing
+	c := &plr.channels[0]
+	validateChan(c, 0, periodA4, 60, t)
+
+	// Advance to second row and the note off effect
+	advanceToNextRow(plr)
+	validateChan(c, 0, 0, 0, t)
 }
 
 func BenchmarkMixChannels(b *testing.B) {

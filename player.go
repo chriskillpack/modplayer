@@ -598,36 +598,35 @@ func (p *Player) sequenceTick() bool {
 
 			notePresent := pitch > 0
 
-			/*
-				Note triggering behavior, from experimentation in ST3
-
-				Note Ins Vol Effect Behavior
-				N                   Play new note N with existing instrument, at
-									existing channel volume. If no prior
-									instrument nothing is played. Prior
-									instrument cleared at beginning of song, not
-									each pattern transition.
-					 I              Next note will use instrument I, stops
-									currently playing instrument if different.
-									If the same then the instrument continues
-									playing with the volume at the default.
-				N    I              Play new note N with new instrument I, at
-									instrument default volume.
-						 V          Adjust channel volume to V.
-				N        V          Play new note N at volume V with existing
-									instrument on channel.
-					 I   V          Next note will use instrument I, with volume
-									V (if no volume on the next note). Any
-									currently playing instrument is stopped.
-				N    I   V          Play new note N with new instrument I at new
-									volume V.
-
-				N            Dly    Play note N with delay using current
-				\					instrument and volume, currently playing
-									note is not changed.
-				N    I       Dly    Play note N with delay using instrument I at
-									default volume.
-			*/
+			// Note triggering behavior, from experimentation in ST3
+			//
+			// Note Ins Vol Effect Behavior
+			// N                   Play new note N with existing instrument, at
+			//                     existing channel volume. If no prior
+			//                     instrument nothing is played. Prior
+			//                     instrument cleared at beginning of song, not
+			//                     each pattern transition.
+			//      I              Next note will use instrument I, stops
+			//                     currently playing instrument if different.
+			//                     If the same then the instrument continues
+			//                     playing with the volume at the default.
+			// N    I              Play new note N with new instrument I, at
+			//                     instrument default volume.
+			//          V          Adjust channel volume to V.
+			// N        V          Play new note N at volume V with existing
+			//                     instrument on channel.
+			//      I   V          Next note will use instrument I, with volume
+			//                     V (if no volume on the next note). Any
+			//                     currently playing instrument is stopped.
+			// N    I   V          Play new note N with new instrument I at new
+			//                     volume V.
+			// N            Dly    Play note N with delay using current
+			//                     instrument and volume, currently playing
+			//                     note is not changed.
+			// N    I       Dly    Play note N with delay using instrument I at
+			//                     default volume.
+			//          V   Dly    After delay change volume of currently
+			//                     playing note
 
 			volume := noNoteVolume
 
@@ -656,6 +655,8 @@ func (p *Player) sequenceTick() bool {
 			portaToNoteVolSlide := effect == effectPortaToNote
 			playImmediately := !portaToNote && !portaToNoteVolSlide && !noteDelay
 
+			channel.periodToPlay = channel.period
+
 			// If there is a note pitch...
 			if notePresent {
 				// Convert the pitch to a period
@@ -679,18 +680,18 @@ func (p *Player) sequenceTick() bool {
 					// ... assign the new instrument if one was provided
 					channel.triggerNote(period, channel.sampleToPlay, p.order, p.row)
 				} else {
-					if volume != noNoteVolume {
-						channel.volumeToPlay = volume
-					} else {
-						channel.volumeToPlay = channel.volume
-					}
 					channel.periodToPlay = period
 				}
 			}
 
 			// This goes here because sometimes we don't have a note
-			if playImmediately && volume != noNoteVolume {
-				channel.volume = volume
+			if volume != noNoteVolume {
+				if playImmediately {
+					channel.volume = volume
+					channel.volumeToPlay = channel.volume
+				} else {
+					channel.volumeToPlay = volume
+				}
 			}
 
 			channel.effect = effect

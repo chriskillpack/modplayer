@@ -686,11 +686,11 @@ func (p *Player) sequenceTick() bool {
 
 			// This goes here because sometimes we don't have a note
 			if volume != noNoteVolume {
-				if playImmediately {
+				if noteDelay {
+					channel.volumeToPlay = volume
+				} else {
 					channel.volume = volume
 					channel.volumeToPlay = channel.volume
-				} else {
-					channel.volumeToPlay = volume
 				}
 			}
 

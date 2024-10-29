@@ -333,6 +333,31 @@ func TestNoteOff(t *testing.T) {
 	validateChan(c, 0, 0, 0, t)
 }
 
+// Tests a specific bug: the note trigger logic rewrite incorrectly treated
+// note portamentos as note delays, so it queued up changes (such as volume)
+// that were never applied.
+func TestNotePortamentoVol(t *testing.T) {
+	plr := newPlayerWithTestPattern([][]string{
+		{"A-4  1 .. ..."}, // setup: start playing a note
+		{"B-4 .. 15 G05"}, // bug: active portamento should set volume
+	}, t)
+	plr.sequenceTick()
+
+	// Note should be playing
+	c := &plr.channels[0]
+	validateChan(c, 0, periodA4, 60, t)
+
+	// Advance to next row
+	advanceToNextRow(plr)
+
+	// Verify that the volume was applied
+	validateChan(c, 0, periodA4, 15, t)
+
+	// One more tick to verify that the portamento is happening
+	plr.sequenceTick()
+	validateChan(c, 0, 4048, 15, t) // period has shifted towards B-4 a little
+}
+
 func BenchmarkMixChannels(b *testing.B) {
 	player, err := newTestPlayerFromMod("testdata/mix.mod")
 	if err != nil {

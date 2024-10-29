@@ -20,6 +20,7 @@ var (
 	flagHz       = flag.Int("hz", 44100, "output hz")
 	flagBoost    = flag.Int("boost", 1, "volume boost, an integer between 1 and 4")
 	flagStartOrd = flag.Int("start", 0, "starting order in the MOD, clamped to song max")
+	flagLenOrd   = flag.Int("maxpatterns", -1, "Maximum number of orders to play, useful for songs that loop forever")
 	flagReverb   = flag.String("reverb", "light", "choose from light, medium, silly or none")
 	flagMute     = flag.Uint("mute", 0, "bitmask of muted channels, channel 1 in LSB, set bit to mute channel")
 )
@@ -66,7 +67,10 @@ func main() {
 		log.Fatal(err)
 	}
 	player.Mute = *flagMute
-	player.SeekTo(*flagStartOrd, 0)
+	if *flagStartOrd > 0 {
+		player.SeekTo(*flagStartOrd, 0)
+	}
+	player.PlayOrderLimit = *flagLenOrd
 
 	initErr := portaudio.Initialize()
 	defer func() {
@@ -92,7 +96,7 @@ func main() {
 		}
 	}
 
-	stream, err := portaudio.OpenDefaultStream(0, 2, float64(*flagHz), portaudio.FramesPerBufferUnspecified, streamCB)
+	stream, err := portaudio.OpenDefaultStream(0, 2, float64(*flagHz), int(portaudio.FramesPerBufferUnspecified), streamCB)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -66,11 +66,14 @@ type Player struct {
 	tick          int // decrementing counter for number of ticks per row
 	row           int // which row in the order
 	order         int // current order of the song
+	ordersplayed  int // number of orders played
 	playing       bool
 
 	// Bitmask of muted channels, channel 1 in LSB. To mute a channel set
 	// its bit to 1.
 	Mute uint
+
+	PlayOrderLimit int // maximum number of orders to play, -1 to disable limit
 
 	loop     []loopinfo
 	channels []channel
@@ -296,6 +299,7 @@ func NewPlayer(song *Song, samplingFrequency uint) (*Player, error) {
 		globalVolume:      uint(song.GlobalVolume),
 		Song:              song,
 		Speed:             6,
+		PlayOrderLimit:    -1,
 	}
 
 	player.loop = make([]loopinfo, song.Channels)
@@ -572,8 +576,11 @@ func (p *Player) sequenceTick() bool {
 		if p.row >= 64 {
 			p.row = 0
 			p.order++
+			p.ordersplayed++
 
-			if p.order >= len(p.Song.Orders) {
+			endOfSong := p.order >= len(p.Song.Orders)
+			playLimitReached := p.PlayOrderLimit != -1 && p.ordersplayed >= p.PlayOrderLimit
+			if endOfSong || playLimitReached {
 				// End of the song reached, reset player state and stop
 				finished = true
 				p.reset()

@@ -65,7 +65,15 @@ Pattern 0 (x00)
 
 # Testing
 
-Testing a music player is a little tricky because the output is audio data. As such there are only integration tests and manual listening tests where I compare the audio output to other players (such as Open Cubic Player and MilkyTracker). I have some ideas on how to write unit tests for the player logic and plan to get to these later.
+Testing a music player is a little tricky because the output is audio data. There are unit tests for the note trigger logic, integrations tests which compare the player against golden output, and manual listening tests where I compare output to other players.
+
+### Unit tests
+
+Currently there are unit tests for the note triggering logic in the player. I determined the logic by experimenting in ScreamTracker 3 and then codifying the behavior in unit tests. Over time I will increase the coverage of unit tests.
+
+```bash
+$ go test .
+```
 
 ### Integration tests
 
@@ -105,5 +113,5 @@ sudo cp $PORTAUDIO/lib/.libs/libportaudio.2.dylib /usr/local/lib
 # TODO
 
 - Finish S3M support
-- Unit tests
+- Increase unit test coverage
 - Add sample interpolation into mixer for improved sound quality

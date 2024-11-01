@@ -159,7 +159,7 @@ func decodeEffect(effect string) (byte, byte) {
 	if err != nil {
 		panic(err)
 	}
-	return convertS3MEffect(effect[0]-'A'+1, byte(param))
+	return convertS3MEffect(effect[0]-'A'+1, byte(param), 0, 0, 0)
 }
 
 func validateChan(c *channel, sample, period, volume int, t *testing.T) {

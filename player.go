@@ -34,14 +34,15 @@ const (
 	effectSetSpeed            = 0xF
 
 	// Internal effects
-	effectPatternLoop       = 0x20
-	effectS3MVolumeSlide    = 0x21
-	effectS3MPortamentoDown = 0x22
-	effectS3MPortamentoUp   = 0x23
-	effectS3MGlobalVolume   = 0x24
+	effectPatternLoop        = 0x20
+	effectS3MVolumeSlide     = 0x21
+	effectS3MPortamentoDown  = 0x22
+	effectS3MPortamentoUp    = 0x23
+	effectS3MGlobalVolume    = 0x24
+	effectNoteRetrigVolSlide = 0x25
 
 	// Extended effects (Exy), x = effect, y effect param
-	effectExtendedNoteRetrig       = 0x9
+	effectExtendedNoteRetrig       = 0x9 // Gets converted to effectNoteRetrigVolSlide in the MOD loader
 	effectExtendedFineVolSlideUp   = 0xA
 	effectExtendedFineVolSlideDown = 0xB
 	effectExtendedNoteCut          = 0xC
@@ -168,9 +169,12 @@ type channel struct {
 
 	memVolSlide   byte // saved volume slide parameter
 	memPortamento byte // saved portamento parameter
+	memRetrig     byte // saved retrig parameter
 
-	trigOrder, trigRow int // The order and row the channel was triggered on
-	// This is here only for State().
+	// When the note was triggered
+	trigOrder int
+	trigRow   int
+	trigTick  int
 }
 
 type loopinfo struct {
@@ -459,6 +463,7 @@ func (p *Player) reset() {
 		channel.pan = int(p.Song.pan[i])
 		channel.memVolSlide = 0
 		channel.memPortamento = 0
+		channel.memRetrig = 0
 	}
 }
 
@@ -544,20 +549,24 @@ func (p *Player) channelTick(c *channel, ci, tick int) {
 		if c.period < 1 {
 			c.period = 1
 		}
+	case effectNoteRetrigVolSlide:
+		if c.param > 0 {
+			c.memRetrig = c.param
+		}
+		if c.effectCounter >= int(c.memRetrig&0xF) {
+			c.triggerNote(c.period, c.sample, p.order, p.row, p.tick)
+			c.volume = retrigVolume(int(c.memRetrig>>4), c.volume)
+			c.effectCounter = 0
+		}
 	case effectExtended:
 		switch c.param >> 4 {
-		case effectExtendedNoteRetrig:
-			if c.effectCounter >= int(c.param&0xF) {
-				c.effectCounter = 0
-				c.samplePosition = 0
-			}
 		case effectExtendedNoteCut:
 			if c.effectCounter == int(c.param&0xF) {
 				c.volume = 0
 			}
 		case effectExtendedNoteDelay:
 			if c.effectCounter == int(c.param&0xF) {
-				c.triggerNote(c.periodToPlay, c.sampleToPlay, p.order, p.row)
+				c.triggerNote(c.periodToPlay, c.sampleToPlay, p.order, p.row, p.tick)
 				c.volume = c.volumeToPlay
 			}
 		}
@@ -658,8 +667,9 @@ func (p *Player) sequenceTick() bool {
 			}
 
 			noteDelay := effect == effectExtended && param>>4 == effectExtendedNoteDelay
+			noteRetrigMem := effect == effectNoteRetrigVolSlide && param == 0
 			portaToNote := effect == effectPortaToNote
-			portaToNoteVolSlide := effect == effectPortaToNote
+			portaToNoteVolSlide := effect == effectPortaToNote // TODO: typo?
 			playImmediately := !portaToNote && !portaToNoteVolSlide && !noteDelay
 
 			channel.periodToPlay = channel.period
@@ -685,9 +695,14 @@ func (p *Player) sequenceTick() bool {
 					}
 
 					// ... assign the new instrument if one was provided
-					channel.triggerNote(period, channel.sampleToPlay, p.order, p.row)
+					channel.triggerNote(period, channel.sampleToPlay, p.order, p.row, p.tick)
 				} else {
 					channel.periodToPlay = period
+				}
+			} else {
+				if noteRetrigMem {
+					channel.triggerNote(channel.period, channel.sample, p.order, p.row, p.tick)
+					channel.volume = retrigVolume(int(channel.memRetrig>>4), channel.volume)
 				}
 			}
 
@@ -913,7 +928,7 @@ func (p *Player) sequenceTick() bool {
 	return finished
 }
 
-func (c *channel) triggerNote(period, sample, order, row int) {
+func (c *channel) triggerNote(period, sample, order, row, tick int) {
 	c.period = period
 	c.sample = sample
 	c.samplePosition = 0
@@ -921,6 +936,7 @@ func (c *channel) triggerNote(period, sample, order, row int) {
 	c.vibratoPhase = 0
 	c.trigOrder = order
 	c.trigRow = row
+	c.trigTick = tick
 }
 
 func (p *Player) mixChannels(nSamples, offset int) {
@@ -1126,6 +1142,49 @@ func periodFromPlayerNote(note playerNote, c4speed int) int {
 	period := periodBase / math.Pow(2, float64(note)/12.0)
 	period = (8363 * period) / float64(c4speed) // Perform finetuning
 	return int(period) * 4
+}
+
+func retrigVolume(mode, vol int) (outvol int) {
+	switch mode {
+	case 1:
+		outvol = vol - 1
+	case 2:
+		outvol = vol - 2
+	case 3:
+		outvol = vol - 4
+	case 4:
+		outvol = vol - 8
+	case 5:
+		outvol = vol - 16
+	case 6:
+		outvol = (vol * 2) / 3
+	case 7:
+		outvol = vol / 2
+	case 9:
+		outvol = vol + 1
+	case 10:
+		outvol = vol + 2
+	case 11:
+		outvol = vol + 4
+	case 12:
+		outvol = vol + 8
+	case 13:
+		outvol = vol + 16
+	case 14:
+		outvol = (vol * 3) / 2
+	case 15:
+		outvol = vol * 2
+	default:
+		outvol = vol
+	}
+	if outvol < 0 {
+		outvol = 0
+	}
+	if outvol > maxVolume {
+		outvol = maxVolume
+	}
+
+	return
 }
 
 func dumpf(format string, a ...interface{}) {

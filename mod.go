@@ -140,6 +140,12 @@ func NewMODSongFromBytes(songBytes []byte) (*Song, error) {
 			} else {
 				n.Volume = 0xFF // no volume set on this note
 			}
+
+			if n.Effect == effectExtended && (n.Param>>4 == effectExtendedNoteRetrig) {
+				n.Effect = effectNoteRetrigVolSlide
+				n.Param = n.Param & 0xF
+			}
+
 			song.patterns[i][p] = n
 		}
 		dumpf("\n")

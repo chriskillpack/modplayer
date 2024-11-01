@@ -9,18 +9,19 @@ import (
 )
 
 const (
-	s3mfx_SetSpeed        = 0x1  // 'A'
-	s3mfx_PatternJump     = 0x2  // 'B'
-	s3mfx_PatternBreak    = 0x3  // 'C'
-	s3mfx_VolumeSlide     = 0x4  // 'D'
-	s3mfx_PortamentoDown  = 0x5  // 'E'
-	s3mfx_PortamentoUp    = 0x6  // 'F'
-	s3mfx_TonePortamento  = 0x7  // 'G'
-	s3mfx_Vibrato         = 0x8  // 'H'
-	s3mfx_SampleOffset    = 0xF  // 'O'
-	s3mfx_Special         = 0x13 // 'S'
-	s3mfx_SetTempo        = 0x14 // 'T'
-	s3mfx_SetGlobalVolume = 0x16 // 'V'
+	s3mfx_SetSpeed           = 0x1  // 'A'
+	s3mfx_PatternJump        = 0x2  // 'B'
+	s3mfx_PatternBreak       = 0x3  // 'C'
+	s3mfx_VolumeSlide        = 0x4  // 'D'
+	s3mfx_PortamentoDown     = 0x5  // 'E'
+	s3mfx_PortamentoUp       = 0x6  // 'F'
+	s3mfx_TonePortamento     = 0x7  // 'G'
+	s3mfx_Vibrato            = 0x8  // 'H'
+	s3mfx_SampleOffset       = 0xF  // 'O'
+	s3mfx_RetrigNoteVolSlide = 0x11 // 'Q'
+	s3mfx_Special            = 0x13 // 'S'
+	s3mfx_SetTempo           = 0x14 // 'T'
+	s3mfx_SetGlobalVolume    = 0x16 // 'V'
 )
 
 var ErrInvalidS3M = errors.New("invalid S3M file")
@@ -316,7 +317,7 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 				nd.Effect = efct
 				nd.Param = parm
 
-				efct, parm = convertS3MEffect(efct, parm)
+				efct, parm = convertS3MEffect(efct, parm, i, row, chn)
 				no.Effect = efct
 				no.Param = parm
 				packedLen -= 2
@@ -327,7 +328,7 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 	return song, nil
 }
 
-func convertS3MEffect(efc, parm byte) (effect byte, param byte) {
+func convertS3MEffect(efc, parm byte, _ptn, _row, _chn int) (effect byte, param byte) {
 	effect, param = efc, parm
 
 	switch efc {
@@ -371,6 +372,8 @@ func convertS3MEffect(efc, parm byte) (effect byte, param byte) {
 		effect = effectSetSpeed
 	case s3mfx_SetGlobalVolume:
 		effect = effectS3MGlobalVolume
+	case s3mfx_RetrigNoteVolSlide:
+		effect = effectNoteRetrigVolSlide
 	default:
 		// disable the effect for now
 		effect = 0

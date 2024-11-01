@@ -358,6 +358,82 @@ func TestNotePortamentoVol(t *testing.T) {
 	validateChan(c, 0, 4048, 15, t) // period has shifted towards B-4 a little
 }
 
+func TestEffectRetrig(t *testing.T) {
+	type trigger struct {
+		Tick, Volume int
+	}
+	cases := []struct {
+		Name     string
+		Notes    [][]string
+		Triggers []trigger
+	}{
+		// MOD style retrigs, no change in volume
+		{"Retrig every tick", [][]string{{"A-4  1 .. Q01"}}, []trigger{{0, 60}, {1, 60}, {2, 60}, {3, 60}, {4, 60}, {5, 60}}},
+		{"Retrig three times", [][]string{{"A-4  1 .. Q02"}}, []trigger{{0, 60}, {2, 60}, {4, 60}}},
+		{"Retrig twice", [][]string{{"A-4  1 .. Q03"}}, []trigger{{0, 60}, {3, 60}}},
+		{"No retrig", [][]string{{"A-4  1 .. Q07"}}, []trigger{{0, 60}}},
+
+		// S3M style retrigs, volume slides and retrigs
+		{"Volume -1", [][]string{{"A-4  1 .. Q11"}}, []trigger{{0, 60}, {1, 59}, {2, 58}, {3, 57}, {4, 56}, {5, 55}}},
+		{"Volume -2", [][]string{{"A-4  1 .. Q21"}}, []trigger{{0, 60}, {1, 58}, {2, 56}, {3, 54}, {4, 52}, {5, 50}}},
+		{"Volume -4", [][]string{{"A-4  1 .. Q31"}}, []trigger{{0, 60}, {1, 56}, {2, 52}, {3, 48}, {4, 44}, {5, 40}}},
+		{"Volume -8", [][]string{{"A-4  1 .. Q41"}}, []trigger{{0, 60}, {1, 52}, {2, 44}, {3, 36}, {4, 28}, {5, 20}}},
+		{"Volume -16", [][]string{{"A-4  1 .. Q51"}}, []trigger{{0, 60}, {1, 44}, {2, 28}, {3, 12}, {4, 0}, {5, 0}}},
+		{"Volume +1", [][]string{{"A-4  1 00 Q91"}}, []trigger{{0, 0}, {1, 1}, {2, 2}, {3, 3}, {4, 4}, {5, 5}}},
+		{"Volume +2", [][]string{{"A-4  1 00 QA1"}}, []trigger{{0, 0}, {1, 2}, {2, 4}, {3, 6}, {4, 8}, {5, 10}}},
+		{"Volume +4", [][]string{{"A-4  1 00 QB1"}}, []trigger{{0, 0}, {1, 4}, {2, 8}, {3, 12}, {4, 16}, {5, 20}}},
+		{"Volume +8", [][]string{{"A-4  1 00 QC1"}}, []trigger{{0, 0}, {1, 8}, {2, 16}, {3, 24}, {4, 32}, {5, 40}}},
+		{"Volume +16", [][]string{{"A-4  1 00 QD1"}}, []trigger{{0, 0}, {1, 16}, {2, 32}, {3, 48}, {4, 64}, {5, 64}}},
+		{"Volume *2/3", [][]string{{"A-4  1 .. Q61"}}, []trigger{{0, 60}, {1, 40}, {2, 26}, {3, 17}, {4, 11}, {5, 7}}},
+		{"Volume *1/2", [][]string{{"A-4  1 .. Q71"}}, []trigger{{0, 60}, {1, 30}, {2, 15}, {3, 7}, {4, 3}, {5, 1}}},
+		{"Volume *3/2", [][]string{{"A-4  1 2 QE1"}}, []trigger{{0, 2}, {1, 3}, {2, 4}, {3, 6}, {4, 9}, {5, 13}}},
+		{"Volume *2/1", [][]string{{"A-4  1 1 QF1"}}, []trigger{{0, 1}, {1, 2}, {2, 4}, {3, 8}, {4, 16}, {5, 32}}},
+
+		// No-op
+		{"Volume no-op", [][]string{{"A-4  1 .. Q83"}}, []trigger{{0, 60}, {3, 60}}},
+
+		// Memory
+		{"Memory no vol slide", [][]string{{"A-4  1 .. Q03"}, {"... .. .. Q00"}}, []trigger{{0, 60}, {3, 60}, {0, 60}, {3, 60}}},
+		{"Memory vol slide", [][]string{{"A-4  1 10 QF3"}, {"... .. .. Q00"}}, []trigger{{0, 10}, {3, 20}, {0, 40}, {3, 64}}},
+	}
+	for _, tc := range cases {
+		const speed = 6
+
+		t.Run(tc.Name, func(t *testing.T) {
+			plr := newPlayerWithTestPattern(tc.Notes, t)
+			plr.Speed = speed
+			plr.SeekTo(0, 0) // Ugly way to reset the player speed
+
+			c := &plr.channels[0]
+
+			nrows := len(tc.Notes)
+
+			tick := -1
+			triggers := []trigger{}
+			for i := 0; i < speed*nrows; i++ {
+				plr.sequenceTick()
+				if c.trigTick != tick {
+					triggers = append(triggers, trigger{c.trigTick, c.volume})
+					tick = c.trigTick
+				}
+			}
+
+			if len(triggers) != len(tc.Triggers) {
+				t.Errorf("Expected %d triggers got %d", len(tc.Triggers), len(triggers))
+			}
+
+			for i, trig := range tc.Triggers {
+				if triggers[i].Tick != trig.Tick {
+					t.Errorf("Trigger %d happened on tick %d instead of %d", i, triggers[i].Tick, trig.Tick)
+				}
+				if triggers[i].Volume != trig.Volume {
+					t.Errorf("Trigger %d has volume %d expected %d", i, triggers[i].Volume, trig.Volume)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkMixChannels(b *testing.B) {
 	player, err := newTestPlayerFromMod("testdata/mix.mod")
 	if err != nil {

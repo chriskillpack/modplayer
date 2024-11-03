@@ -342,10 +342,10 @@ func convertS3MEffect(efc, parm byte, _ptn, _row, _chn int) (effect byte, param 
 		effect = effectPatternBrk
 	case s3mfx_VolumeSlide:
 		effect = effectS3MVolumeSlide
-	case s3mfx_PortamentoUp:
-		effect = effectS3MPortamentoUp
 	case s3mfx_PortamentoDown:
 		effect = effectS3MPortamentoDown
+	case s3mfx_PortamentoUp:
+		effect = effectS3MPortamentoUp
 	case s3mfx_TonePortamento:
 		effect = effectPortaToNote
 	case s3mfx_Vibrato:

@@ -168,7 +168,7 @@ type channel struct {
 	effectCounter int
 
 	memVolSlide   byte // saved volume slide parameter
-	memPortamento byte // saved portamento parameter
+	memPortamento byte // saved portamento parameter (this is shared by the up and down commands)
 	memRetrig     byte // saved retrig parameter
 
 	// When the note was triggered
@@ -875,14 +875,14 @@ func (p *Player) sequenceTick() bool {
 				// Exy
 				// EEy - on tick 0, extra fine slide down by y units
 				// EFy - on tick 0, fine slide down by y*4 units
-				if param < 0xE0 {
+				if channel.memPortamento < 0xE0 {
 					break
 				}
-				switch param >> 4 {
+				switch channel.memPortamento >> 4 {
 				case 0xE: // extra fine slide
-					channel.period += int(param & 0xF)
+					channel.period += int(channel.memPortamento & 0xF)
 				case 0xF: // fine slide
-					channel.period += int(param&0xF) * 4
+					channel.period += int(channel.memPortamento&0xF) * 4
 				}
 				if channel.period > 65535 {
 					channel.period = 65535
@@ -894,14 +894,14 @@ func (p *Player) sequenceTick() bool {
 				// Fxy
 				// FEy - on tick 0, extra fine slide down by y units
 				// FFy - on tick 0, fine slide down by y*4 units
-				if param < 0xE0 {
+				if channel.memPortamento < 0xE0 {
 					break
 				}
-				switch param >> 4 {
+				switch channel.memPortamento >> 4 {
 				case 0xE: // extra fine slide
-					channel.period -= int(param & 0xF)
+					channel.period -= int(channel.memPortamento & 0xF)
 				case 0xF: // fine slide
-					channel.period -= int(param&0xF) * 4
+					channel.period -= int(channel.memPortamento&0xF) * 4
 				}
 				if channel.period < 1 {
 					channel.period = 1

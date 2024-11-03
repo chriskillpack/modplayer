@@ -358,6 +358,101 @@ func TestNotePortamentoVol(t *testing.T) {
 	validateChan(c, 0, 4048, 15, t) // period has shifted towards B-4 a little
 }
 
+func TestEffectSetSpeed(t *testing.T) {
+	plr := newPlayerWithTestPattern([][]string{{"... .. .. A04"}}, t)
+	if plr.Speed != 2 {
+		t.Errorf("Expected initial speed of 2, got %d", plr.Speed)
+	}
+	plr.sequenceTick()
+	if plr.Speed != 4 {
+		t.Errorf("Expected initial speed of 4, got %d", plr.Speed)
+	}
+}
+
+func TestEffectPatternJump(t *testing.T) {
+	t.Skip("TODO")
+}
+
+func TestEffectPatternBreak(t *testing.T) {
+	t.Skip("TODO")
+}
+
+func TestEffectVolumeSlide(t *testing.T) {
+	cases := []struct {
+		Name    string
+		Notes   [][]string
+		Volumes []int
+	}{
+		{"Slide down", [][]string{{"A-4  1 .. D01"}}, []int{60, 59, 58, 57, 56, 55}},
+		{"Slide down x2", [][]string{{"A-4  1 .. D02"}}, []int{60, 58, 56, 54, 52, 50}},
+		{"Slide up", [][]string{{"A-4  1 01 D10"}}, []int{1, 2, 3, 4, 5, 6}},
+		{"Slide up x2", [][]string{{"A-4  1 01 D20"}}, []int{1, 3, 5, 7, 9, 11}},
+		{"Fine slide down", [][]string{{"A-4  1 .. DF1"}}, []int{59, 59, 59, 59, 59, 59}},
+		{"Fine slide up", [][]string{{"A-4  1 05 D1F"}}, []int{6, 6, 6, 6, 6, 6}},
+		{"Memory", [][]string{{"A-4  1 .. D01"}, {"... .. .. D00"}}, []int{60, 59, 58, 57, 56, 55, 55, 54, 53, 52, 51, 50}},
+		{"Memory fine slide", [][]string{{"A-4  1 .. DF1"}, {"... .. .. D00"}}, []int{59, 59, 59, 59, 59, 59, 58, 58, 58, 58, 58, 58}},
+		// TODO - fast volume slides, not supported yet
+	}
+	const speed = 6
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			plr := newPlayerWithTestPattern(tc.Notes, t)
+			plr.Speed = speed
+			plr.SeekTo(0, 0) // Ugly way to reset the player speed
+
+			c := &plr.channels[0]
+
+			nrows := len(tc.Notes)
+			for i := 0; i < speed*nrows; i++ {
+				plr.sequenceTick()
+				if c.volume != tc.Volumes[i] {
+					t.Errorf("On tick %d expected volume %d, got %d", i, tc.Volumes[i], c.volume)
+				}
+			}
+		})
+	}
+}
+
+func TestEffectPortamento(t *testing.T) {
+	cases := []struct {
+		Name    string
+		Notes   [][]string
+		Periods []int
+	}{
+		{"Slide down", [][]string{{"A-4  1 .. E01"}}, []int{periodA4, periodA4 + 1*4, periodA4 + 2*4, periodA4 + 3*4, periodA4 + 4*4, periodA4 + 5*4}},
+		{"Slide down x20", [][]string{{"A-4  1 .. E20"}}, []int{periodA4, periodA4 + 1*32*4, periodA4 + 2*32*4, periodA4 + 3*32*4, periodA4 + 4*32*4, periodA4 + 5*32*4}},
+		{"Fine slide down", [][]string{{"A-4  1 .. EF7"}}, []int{periodA4 + 7*4, periodA4 + 7*4, periodA4 + 7*4, periodA4 + 7*4, periodA4 + 7*4, periodA4 + 7*4}},
+		{"Extra fine slide down", [][]string{{"A-4  1 .. EE1"}}, []int{periodA4 + 1, periodA4 + 1, periodA4 + 1, periodA4 + 1, periodA4 + 1, periodA4 + 1}},
+		{"Memory slide down", [][]string{{"A-4  1 .. E01"}, {"... .. .. E00"}}, []int{periodA4, periodA4 + 1*4, periodA4 + 2*4, periodA4 + 3*4, periodA4 + 4*4, periodA4 + 5*4, periodA4 + 5*4, periodA4 + 6*4, periodA4 + 7*4, periodA4 + 8*4, periodA4 + 9*4, periodA4 + 10*4}},
+		{"Memory fine slide down", [][]string{{"A-4  1 .. EF1"}, {"... .. .. E00"}}, []int{periodA4 + 1*4, periodA4 + 1*4, periodA4 + 1*4, periodA4 + 1*4, periodA4 + 1*4, periodA4 + 1*4, periodA4 + 2*4, periodA4 + 2*4, periodA4 + 2*4, periodA4 + 2*4, periodA4 + 2*4, periodA4 + 2*4}},
+
+		{"Slide up", [][]string{{"A-4  1 .. F01"}}, []int{periodA4, periodA4 - 1*4, periodA4 - 2*4, periodA4 - 3*4, periodA4 - 4*4, periodA4 - 5*4}},
+		{"Slide up x20", [][]string{{"A-4  1 .. F20"}}, []int{periodA4, periodA4 - 1*32*4, periodA4 - 2*32*4, periodA4 - 3*32*4, periodA4 - 4*32*4, periodA4 - 5*32*4}},
+		{"Fine slide up", [][]string{{"A-4  1 .. FF7"}}, []int{periodA4 - 7*4, periodA4 - 7*4, periodA4 - 7*4, periodA4 - 7*4, periodA4 - 7*4, periodA4 - 7*4}},
+		{"Extra fine slide up", [][]string{{"A-4  1 .. FE1"}}, []int{periodA4 - 1, periodA4 - 1, periodA4 - 1, periodA4 - 1, periodA4 - 1, periodA4 - 1}},
+		{"Memory slide up", [][]string{{"A-4  1 .. F01"}, {"... .. .. F00"}}, []int{periodA4, periodA4 - 1*4, periodA4 - 2*4, periodA4 - 3*4, periodA4 - 4*4, periodA4 - 5*4, periodA4 - 5*4, periodA4 - 6*4, periodA4 - 7*4, periodA4 - 8*4, periodA4 - 9*4, periodA4 - 10*4}},
+		{"Memory fine slide up", [][]string{{"A-4  1 .. FF1"}, {"... .. .. F00"}}, []int{periodA4 - 1*4, periodA4 - 1*4, periodA4 - 1*4, periodA4 - 1*4, periodA4 - 1*4, periodA4 - 1*4, periodA4 - 2*4, periodA4 - 2*4, periodA4 - 2*4, periodA4 - 2*4, periodA4 - 2*4, periodA4 - 2*4}},
+	}
+	const speed = 6
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			plr := newPlayerWithTestPattern(tc.Notes, t)
+			plr.Speed = speed
+			plr.SeekTo(0, 0) // Ugly way to reset the player speed
+
+			nrows := len(tc.Notes)
+
+			c := &plr.channels[0]
+			for i := 0; i < speed*nrows; i++ {
+				plr.sequenceTick()
+				if c.period != tc.Periods[i] {
+					t.Errorf("On tick %d, expected a period of %d, got %d", i, tc.Periods[i], c.period)
+				}
+			}
+		})
+	}
+}
+
 func TestEffectRetrig(t *testing.T) {
 	type trigger struct {
 		Tick, Volume int

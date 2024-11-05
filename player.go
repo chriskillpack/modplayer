@@ -42,6 +42,7 @@ const (
 	effectNoteRetrigVolSlide = 0x25
 
 	// Extended effects (Exy), x = effect, y effect param
+	effectExtendedVibratoWaveform  = 0x4
 	effectExtendedNoteRetrig       = 0x9 // Gets converted to effectNoteRetrigVolSlide in the MOD loader
 	effectExtendedFineVolSlideUp   = 0xA
 	effectExtendedFineVolSlideDown = 0xB
@@ -132,6 +133,14 @@ func (note playerNote) String() string {
 	}
 }
 
+type vibType int
+
+const (
+	vibratoSine vibType = iota
+	vibratoRampDown
+	vibratoSquareWave
+)
+
 // Internal representation of a pattern note
 type note struct {
 	Sample int
@@ -158,10 +167,11 @@ type channel struct {
 	tremoloPhase  int
 	tremoloAdjust int
 
-	vibratoDepth  int
-	vibratoSpeed  int
-	vibratoPhase  int
-	vibratoAdjust int
+	vibratoDepth    int
+	vibratoSpeed    int
+	vibratoPhase    int
+	vibratoAdjust   int
+	vibratoWaveform vibType
 
 	effect        byte
 	param         byte
@@ -460,6 +470,7 @@ func (p *Player) reset() {
 		channel.vibratoSpeed = 0
 		channel.vibratoPhase = 0
 		channel.vibratoAdjust = 0
+		channel.vibratoWaveform = vibratoSine
 		channel.pan = int(p.Song.pan[i])
 		channel.memVolSlide = 0
 		channel.memPortamento = 0
@@ -471,6 +482,11 @@ func (p *Player) setTempo(tempo int) {
 	// TODO: What to do if new samplesPerTick value is now < tickSamplePos?
 	p.samplesPerTick = int((p.samplingFrequency<<1)+(p.samplingFrequency>>1)) / tempo
 	p.Tempo = tempo
+}
+
+func (p *Player) setSpeed(speed int) {
+	p.Speed = speed
+	p.tick = p.Speed - 1 // TODO - is setting the tick like this appropriate?
 }
 
 func (p *Player) channelTick(c *channel, ci, tick int) {
@@ -490,10 +506,7 @@ func (p *Player) channelTick(c *channel, ci, tick int) {
 	case effectPortaToNote:
 		c.portaToNote()
 	case effectVibrato:
-		c.vibratoAdjust = (sineTable[c.vibratoPhase&31] * c.vibratoDepth) >> 7
-		if c.vibratoPhase > 32 {
-			c.vibratoAdjust = -c.vibratoAdjust
-		}
+		c.vibratoAdjust = (vibratoFn(c.vibratoWaveform, c.vibratoPhase) * c.vibratoDepth) >> 7
 		c.vibratoPhase = (c.vibratoPhase + c.vibratoSpeed) & 63
 	case effectPortaToNoteVolSlide:
 		c.portaToNote()
@@ -819,6 +832,12 @@ func (p *Player) sequenceTick() bool {
 				}
 			case effectExtended:
 				switch param >> 4 {
+				case effectExtendedVibratoWaveform:
+					if param&0xF < 4 {
+						channel.vibratoWaveform = vibType(param & 0xF)
+					}
+					// TODO - retrig controls
+					break
 				case effectExtendedFineVolSlideUp:
 					vol := channel.volume
 					vol += int(param & 0x0F)
@@ -1142,6 +1161,30 @@ func periodFromPlayerNote(note playerNote, c4speed int) int {
 	period := periodBase / math.Pow(2, float64(note)/12.0)
 	period = (8363 * period) / float64(c4speed) // Perform finetuning
 	return int(period) * 4
+}
+
+// pos runs from 0 to 63
+func vibratoFn(waveform vibType, pos int) (vib int) {
+	switch waveform {
+	case vibratoSine:
+		vib = sineTable[pos&31]
+		if pos > 32 {
+			vib = -vib
+		}
+	case vibratoRampDown:
+		// Determined by listening tests in ST3
+		vib = -((63 - (pos * 2)) * 4)
+	case vibratoSquareWave:
+		// Determined by listening tests in ST3
+		vib = 255
+		if pos > 32 {
+			vib = 0
+		}
+	default:
+		// Random not supported
+	}
+
+	return
 }
 
 func retrigVolume(mode, vol int) (outvol int) {

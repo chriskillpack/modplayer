@@ -1350,12 +1350,12 @@ a wave (ie. a bump - see diagram).  Running through it once then turning it
 upside down by negating it would produce a smooth running wave which
 oscillates up and down..
 
-	+1|       ****        /At this point we subtract from frequency                 
-	  |    ***    ***    /
+        +1|       ****        /At this point we subtract from frequency                 
+          |    ***    ***    /
 Current 0 |****          ***|****          ****   -> time
-	  |                 |    ***    ***
-	-1|                 |       ****
-			    32
+          |                 |    ***    ***
+        -1|                 |       ****
+                            32
 
 So once your VIBRATO_POS has gone past 32, then subtract 32 from it so it 
 starts at a respectable place at the beginning again. THEN change the 

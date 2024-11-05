@@ -354,6 +354,9 @@ func convertS3MEffect(efc, parm byte, _ptn, _row, _chn int) (effect byte, param 
 		effect = effectSampleOffset
 	case s3mfx_Special:
 		switch parm >> 4 {
+		case 0x3: // S3x Set Vibrato Waveform
+			effect = effectExtended
+			param = (effectExtendedVibratoWaveform << 4) | param&0xF
 		case 0x8: // S8x Channel Pan Position
 			effect = effectSetPanPosition
 			param = (param & 0xF) << 3

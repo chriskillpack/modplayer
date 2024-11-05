@@ -397,8 +397,7 @@ func TestEffectVolumeSlide(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
 			plr := newPlayerWithTestPattern(tc.Notes, t)
-			plr.Speed = speed
-			plr.SeekTo(0, 0) // Ugly way to reset the player speed
+			plr.setSpeed(speed)
 
 			c := &plr.channels[0]
 
@@ -437,8 +436,7 @@ func TestEffectPortamento(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
 			plr := newPlayerWithTestPattern(tc.Notes, t)
-			plr.Speed = speed
-			plr.SeekTo(0, 0) // Ugly way to reset the player speed
+			plr.setSpeed(speed)
 
 			nrows := len(tc.Notes)
 
@@ -447,6 +445,77 @@ func TestEffectPortamento(t *testing.T) {
 				plr.sequenceTick()
 				if c.period != tc.Periods[i] {
 					t.Errorf("On tick %d, expected a period of %d, got %d", i, tc.Periods[i], c.period)
+				}
+			}
+		})
+	}
+}
+
+func TestEffectTonePortamento(t *testing.T) {
+	cases := []struct {
+		Name    string
+		Notes   [][]string
+		Periods []int
+	}{
+		{"Portamento up", [][]string{{"A-4  1 .. ..."}, {"B-4 .. .. G10"}, {"... .. .. G00"}},
+			[]int{periodA4, 4004, 3940, 3876, 3812, 3748, 3748, 3684, periodB4, periodB4, periodB4, periodB4}},
+		{"Portamento down", [][]string{{"B-4  1 .. ..."}, {"A-4 .. .. G10"}, {"... .. .. G00"}},
+			[]int{periodB4, 3688, 3752, 3816, 3880, 3944, 3944, 4008, periodA4, periodA4, periodA4, periodA4}},
+	}
+	const speed = 6
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			plr := newPlayerWithTestPattern(tc.Notes, t)
+			plr.setSpeed(speed)
+
+			nrows := len(tc.Notes)
+
+			c := &plr.channels[0]
+			for i := 0; i < speed*nrows; i++ {
+				plr.sequenceTick()
+				if i > speed {
+					if c.period != tc.Periods[i-speed] {
+						t.Errorf("On tick %d expected period %d, got %d", i, tc.Periods[i-speed], c.period)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestEffectVibrato(t *testing.T) {
+	cases := []struct {
+		Name        string
+		Notes       [][]string
+		Adjustments []int
+	}{
+		{"No vibrato", [][]string{{"A-4  1 .. ..."}}, []int{0, 0, 0, 0, 0, 0}},
+
+		{"Sine wave no depth", [][]string{{"... .. .. S30"}, {"A-4  1 .. H10"}}, []int{0, 0, 0, 0, 0, 0}},
+		// TODO - investigate why the vibrato adjust goes to 0 at the start of a new row
+		// Is this correct behavior or a bug? True for all the vibrato tests below.
+		{"Sine wave", [][]string{{"... .. .. S30"}, {"A-4  1 .. H2A"}, {"... .. .. H00"}}, []int{0, 0, 3, 7, 11, 14, 0, 16, 18, 19, 19, 19}},
+		{"Faster sine wave", [][]string{{"... .. .. S30"}, {"A-4  1 .. H4A"}, {"... .. .. H00"}}, []int{0, 0, 7, 14, 18, 19, 0, 18, 14, 7, 0, -8}},
+
+		{"Ramp down", [][]string{{"... .. .. S31"}, {"A-4  1 .. H2A"}, {"... .. .. H00"}}, []int{0, -20, -19, -18, -16, -15, 0, -14, -13, -11, -10, -9}},
+		{"Ramp down faster", [][]string{{"... .. .. S31"}, {"A-4  1 .. H4A"}, {"... .. .. H00"}}, []int{0, -20, -18, -15, -13, -10, 0, -8, -5, -3, 0, 2}},
+
+		{"Square wave", [][]string{{"... .. .. S32"}, {"A-4  1 .. H6A"}, {"... .. .. H00"}}, []int{0, 19, 19, 19, 19, 19, 0, 19, 0, 0, 0, 0}},
+	}
+
+	const speed = 6
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			plr := newPlayerWithTestPattern(tc.Notes, t)
+			plr.setSpeed(speed)
+
+			c := &plr.channels[0]
+
+			nrows := len(tc.Notes)
+			for i := 0; i < speed*nrows; i++ {
+				plr.sequenceTick()
+				if i >= speed && c.vibratoAdjust != tc.Adjustments[i-speed] {
+					t.Errorf("On tick %d expected vibrato adjustment %d, got %d", i, tc.Adjustments[i-speed], c.vibratoAdjust)
 				}
 			}
 		})
@@ -496,8 +565,7 @@ func TestEffectRetrig(t *testing.T) {
 
 		t.Run(tc.Name, func(t *testing.T) {
 			plr := newPlayerWithTestPattern(tc.Notes, t)
-			plr.Speed = speed
-			plr.SeekTo(0, 0) // Ugly way to reset the player speed
+			plr.setSpeed(speed)
 
 			c := &plr.channels[0]
 

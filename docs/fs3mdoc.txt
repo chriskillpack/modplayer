@@ -2084,13 +2084,13 @@ Otherwise if VIBRATO_POS is >= 0, add to the frequency.
 
 By doing this we should get one nice and smooth oscillation like so:
 
-			       At this point we add to the frequency
-	 (+)│                 │      ****
-	    │                 │   ***    ***
+                               At this point we add to the frequency
+         (+)│                 │      ****
+            │                 │   ***    ***
 Current    0│****..........***│***..........****..... -> time
 Frequency   │    ***    ***   │
-	 (-)│       ****      │
-	    └32───────────────0────────────────>31  VIBRATO_POS
+         (-)│       ****      │
+            └32───────────────0────────────────>31  VIBRATO_POS
 
 Once we have adjusted the frequency accordingly, add the VIBRATO_SPEED value
 to the VIBRATO_POS, therefore incrementing the position by the speed given by

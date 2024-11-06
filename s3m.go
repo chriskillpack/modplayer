@@ -19,6 +19,7 @@ const (
 	s3mfx_Vibrato            = 0x8  // 'H'
 	s3mfx_SampleOffset       = 0xF  // 'O'
 	s3mfx_RetrigNoteVolSlide = 0x11 // 'Q'
+	s3mfx_Tremolo            = 0x12 // 'R'
 	s3mfx_Special            = 0x13 // 'S'
 	s3mfx_SetTempo           = 0x14 // 'T'
 	s3mfx_SetGlobalVolume    = 0x16 // 'V'
@@ -357,6 +358,9 @@ func convertS3MEffect(efc, parm byte, _ptn, _row, _chn int) (effect byte, param 
 		case 0x3: // S3x Set Vibrato Waveform
 			effect = effectExtended
 			param = (effectExtendedVibratoWaveform << 4) | param&0xF
+		case 0x4: // S4x Set Tremolo Waveform
+			effect = effectExtended
+			param = (effectExtendedTremoloWaveform << 4) | param&0xF
 		case 0x8: // S8x Channel Pan Position
 			effect = effectSetPanPosition
 			param = (param & 0xF) << 3
@@ -377,6 +381,8 @@ func convertS3MEffect(efc, parm byte, _ptn, _row, _chn int) (effect byte, param 
 		effect = effectS3MGlobalVolume
 	case s3mfx_RetrigNoteVolSlide:
 		effect = effectNoteRetrigVolSlide
+	case s3mfx_Tremolo:
+		effect = effectTremolo
 	default:
 		// disable the effect for now
 		effect = 0

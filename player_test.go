@@ -110,6 +110,13 @@ func TestPlayerInitialState(t *testing.T) {
 		if c.pan != int(player.Song.pan[i]) {
 			t.Errorf("Expected channel %d to have pan %d, got %d\n", i, player.Song.pan[i], c.pan)
 		}
+
+		if c.vibratoWaveform != vibratoSine {
+			t.Errorf("Expected vibrato waveform to default to 0, got %d", c.vibratoWaveform)
+		}
+		if c.tremoloWaveform != vibratoSine {
+			t.Errorf("Expected tremolo waveform to default to 0, got %d", c.tremoloWaveform)
+		}
 	}
 }
 
@@ -514,6 +521,39 @@ func TestEffectVibrato(t *testing.T) {
 				plr.sequenceTick()
 				if i >= speed && c.vibratoAdjust != tc.Adjustments[i-speed] {
 					t.Errorf("On tick %d expected vibrato adjustment %d, got %d", i, tc.Adjustments[i-speed], c.vibratoAdjust)
+				}
+			}
+		})
+	}
+}
+
+func TestEffectTremolo(t *testing.T) {
+	cases := []struct {
+		Name        string
+		Notes       [][]string
+		Adjustments []int
+	}{
+		{"No tremolo", [][]string{{"A-4  1 .. ..."}}, []int{0, 0, 0, 0, 0, 0}},
+
+		{"Sine wave no depth", [][]string{{"... .. .. S40"}, {"A-4  1 .. R10"}}, []int{0, 0, 0, 0, 0, 0}},
+		{"Sine wave", [][]string{{"... .. .. S40"}, {"A-4  1 .. R2A"}, {"... .. .. R00"}}, []int{0, 0, 3, 7, 11, 14, 16, 16, 18, 19, 19, 19}},
+		{"Ramp down", [][]string{{"... .. .. S41"}, {"A-4  1 .. R2A"}, {"... .. .. R00"}}, []int{-20, -20, -19, -18, -16, -15, -14, -14, -13, -11, -10, -9}},
+		{"Square wave", [][]string{{"... .. .. S42"}, {"A-4  1 .. R6A"}, {"... .. .. R00"}}, []int{19, 19, 19, 19, 19, 19, 19, 19, 0, 0, 0, 0}},
+	}
+
+	const speed = 6
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			plr := newPlayerWithTestPattern(tc.Notes, t)
+			plr.setSpeed(speed)
+
+			c := &plr.channels[0]
+
+			nrows := len(tc.Notes)
+			for i := 0; i < speed*nrows; i++ {
+				plr.sequenceTick()
+				if i >= speed && c.tremoloAdjust != tc.Adjustments[i-speed] {
+					t.Errorf("On tick %d expected tremolo adjustment %d, got %d", i, tc.Adjustments[i-speed], c.vibratoAdjust)
 				}
 			}
 		})

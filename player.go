@@ -21,9 +21,9 @@ const (
 	effectPortamentoUp        = 0x1
 	effectPortamentoDown      = 0x2
 	effectPortaToNote         = 0x3
-	effectVibrato             = 0x4 // TODO: Complete
+	effectVibrato             = 0x4
 	effectPortaToNoteVolSlide = 0x5
-	effectTremolo             = 0x7 // TODO: Complete
+	effectTremolo             = 0x7
 	effectSetPanPosition      = 0x8
 	effectSampleOffset        = 0x9
 	effectVolumeSlide         = 0xA
@@ -43,6 +43,7 @@ const (
 
 	// Extended effects (Exy), x = effect, y effect param
 	effectExtendedVibratoWaveform  = 0x4
+	effectExtendedTremoloWaveform  = 0x7
 	effectExtendedNoteRetrig       = 0x9 // Gets converted to effectNoteRetrigVolSlide in the MOD loader
 	effectExtendedFineVolSlideUp   = 0xA
 	effectExtendedFineVolSlideDown = 0xB
@@ -162,10 +163,11 @@ type channel struct {
 	pan            int // Pan position, 0=Full Left, 127=Full Right
 	samplePosition uint
 
-	tremoloDepth  int
-	tremoloSpeed  int
-	tremoloPhase  int
-	tremoloAdjust int
+	tremoloDepth    int
+	tremoloSpeed    int
+	tremoloPhase    int
+	tremoloAdjust   int
+	tremoloWaveform vibType
 
 	vibratoDepth    int
 	vibratoSpeed    int
@@ -512,10 +514,7 @@ func (p *Player) channelTick(c *channel, ci, tick int) {
 		c.portaToNote()
 		c.volumeSlide()
 	case effectTremolo:
-		c.tremoloAdjust = (sineTable[c.tremoloPhase&31] * c.tremoloDepth) >> 6
-		if c.tremoloPhase > 32 {
-			c.tremoloAdjust = -c.tremoloAdjust
-		}
+		c.tremolo()
 		c.tremoloPhase = (c.tremoloPhase + c.tremoloSpeed) & 63
 	case effectVolumeSlide:
 		c.volumeSlide()
@@ -748,6 +747,7 @@ func (p *Player) sequenceTick() bool {
 				if param&0xF > 0 {
 					channel.vibratoDepth = int(param & 0xF)
 				}
+				// TODO - support waveform retrig
 				channel.vibrato()
 			case effectTremolo:
 				if param&0xF0 > 0 {
@@ -756,6 +756,8 @@ func (p *Player) sequenceTick() bool {
 				if param&0xF > 0 {
 					channel.tremoloDepth = int(param & 0xF)
 				}
+				// TODO - support waveform retrig
+				channel.tremolo()
 			case effectSetSpeed:
 				if param >= 0x20 {
 					p.setTempo(int(param))
@@ -839,6 +841,10 @@ func (p *Player) sequenceTick() bool {
 					}
 					// TODO - retrig controls
 					break
+				case effectExtendedTremoloWaveform:
+					if param&0xF < 4 {
+						channel.tremoloWaveform = vibType(param & 0xF)
+					}
 				case effectExtendedFineVolSlideUp:
 					vol := channel.volume
 					vol += int(param & 0x0F)
@@ -1166,13 +1172,19 @@ func periodFromPlayerNote(note playerNote, c4speed int) int {
 	return int(period) * 4
 }
 
+func (c *channel) vibrato() {
+	c.vibratoAdjust = (vibratoTremoloWaveFn(c.vibratoWaveform, c.vibratoPhase) * c.vibratoDepth) >> 7
+}
+
+func (c *channel) tremolo() {
+	c.tremoloAdjust = (vibratoTremoloWaveFn(c.tremoloWaveform, c.tremoloPhase) * c.tremoloDepth) >> 7
+}
+
 // compute the vibrato adjustment and set it on the channel
 // pos runs from 0 to 63
-func (c *channel) vibrato() {
-	pos := c.vibratoPhase
-
+func vibratoTremoloWaveFn(wave vibType, pos int) int {
 	var vib int
-	switch c.vibratoWaveform {
+	switch wave {
 	case vibratoSine:
 		vib = sineTable[pos&31]
 		if pos > 32 {
@@ -1191,7 +1203,7 @@ func (c *channel) vibrato() {
 		// Random not supported
 	}
 
-	c.vibratoAdjust = (vib * c.vibratoDepth) >> 7
+	return vib
 }
 
 func retrigVolume(mode, vol int) (outvol int) {

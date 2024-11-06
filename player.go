@@ -506,7 +506,7 @@ func (p *Player) channelTick(c *channel, ci, tick int) {
 	case effectPortaToNote:
 		c.portaToNote()
 	case effectVibrato:
-		c.vibratoAdjust = (vibratoFn(c.vibratoWaveform, c.vibratoPhase) * c.vibratoDepth) >> 7
+		c.vibrato()
 		c.vibratoPhase = (c.vibratoPhase + c.vibratoSpeed) & 63
 	case effectPortaToNoteVolSlide:
 		c.portaToNote()
@@ -748,6 +748,7 @@ func (p *Player) sequenceTick() bool {
 				if param&0xF > 0 {
 					channel.vibratoDepth = int(param & 0xF)
 				}
+				channel.vibrato()
 			case effectTremolo:
 				if param&0xF0 > 0 {
 					channel.tremoloSpeed = int(param >> 4)
@@ -953,6 +954,8 @@ func (c *channel) triggerNote(period, sample, order, row, tick int) {
 	c.samplePosition = 0
 	c.tremoloPhase = 0
 	c.vibratoPhase = 0
+	c.vibratoAdjust = 0
+	c.tremoloAdjust = 0
 	c.trigOrder = order
 	c.trigRow = row
 	c.trigTick = tick
@@ -1163,9 +1166,13 @@ func periodFromPlayerNote(note playerNote, c4speed int) int {
 	return int(period) * 4
 }
 
+// compute the vibrato adjustment and set it on the channel
 // pos runs from 0 to 63
-func vibratoFn(waveform vibType, pos int) (vib int) {
-	switch waveform {
+func (c *channel) vibrato() {
+	pos := c.vibratoPhase
+
+	var vib int
+	switch c.vibratoWaveform {
 	case vibratoSine:
 		vib = sineTable[pos&31]
 		if pos > 32 {
@@ -1184,7 +1191,7 @@ func vibratoFn(waveform vibType, pos int) (vib int) {
 		// Random not supported
 	}
 
-	return
+	c.vibratoAdjust = (vib * c.vibratoDepth) >> 7
 }
 
 func retrigVolume(mode, vol int) (outvol int) {

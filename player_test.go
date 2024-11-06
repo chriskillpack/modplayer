@@ -492,15 +492,13 @@ func TestEffectVibrato(t *testing.T) {
 		{"No vibrato", [][]string{{"A-4  1 .. ..."}}, []int{0, 0, 0, 0, 0, 0}},
 
 		{"Sine wave no depth", [][]string{{"... .. .. S30"}, {"A-4  1 .. H10"}}, []int{0, 0, 0, 0, 0, 0}},
-		// TODO - investigate why the vibrato adjust goes to 0 at the start of a new row
-		// Is this correct behavior or a bug? True for all the vibrato tests below.
-		{"Sine wave", [][]string{{"... .. .. S30"}, {"A-4  1 .. H2A"}, {"... .. .. H00"}}, []int{0, 0, 3, 7, 11, 14, 0, 16, 18, 19, 19, 19}},
-		{"Faster sine wave", [][]string{{"... .. .. S30"}, {"A-4  1 .. H4A"}, {"... .. .. H00"}}, []int{0, 0, 7, 14, 18, 19, 0, 18, 14, 7, 0, -8}},
+		{"Sine wave", [][]string{{"... .. .. S30"}, {"A-4  1 .. H2A"}, {"... .. .. H00"}}, []int{0, 0, 3, 7, 11, 14, 16, 16, 18, 19, 19, 19}},
+		{"Faster sine wave", [][]string{{"... .. .. S30"}, {"A-4  1 .. H4A"}, {"... .. .. H00"}}, []int{0, 0, 7, 14, 18, 19, 18, 18, 14, 7, 0, -8}},
 
-		{"Ramp down", [][]string{{"... .. .. S31"}, {"A-4  1 .. H2A"}, {"... .. .. H00"}}, []int{0, -20, -19, -18, -16, -15, 0, -14, -13, -11, -10, -9}},
-		{"Ramp down faster", [][]string{{"... .. .. S31"}, {"A-4  1 .. H4A"}, {"... .. .. H00"}}, []int{0, -20, -18, -15, -13, -10, 0, -8, -5, -3, 0, 2}},
+		{"Ramp down", [][]string{{"... .. .. S31"}, {"A-4  1 .. H2A"}, {"... .. .. H00"}}, []int{-20, -20, -19, -18, -16, -15, -14, -14, -13, -11, -10, -9}},
+		{"Ramp down faster", [][]string{{"... .. .. S31"}, {"A-4  1 .. H4A"}, {"... .. .. H00"}}, []int{-20, -20, -18, -15, -13, -10, -8, -8, -5, -3, 0, 2}},
 
-		{"Square wave", [][]string{{"... .. .. S32"}, {"A-4  1 .. H6A"}, {"... .. .. H00"}}, []int{0, 19, 19, 19, 19, 19, 0, 19, 0, 0, 0, 0}},
+		{"Square wave", [][]string{{"... .. .. S32"}, {"A-4  1 .. H6A"}, {"... .. .. H00"}}, []int{19, 19, 19, 19, 19, 19, 19, 19, 0, 0, 0, 0}},
 	}
 
 	const speed = 6

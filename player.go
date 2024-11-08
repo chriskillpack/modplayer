@@ -3,6 +3,7 @@ package modplayer
 // Something else to look at https://www.celersms.com/doc/XM_file_format.pdf
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"math"
@@ -13,7 +14,10 @@ const (
 
 	rowsPerPattern = 64
 	noteKeyOff     = 254
-	maxVolume      = 64   // channel maximum volume
+	minVolume      = 0
+	maxVolume      = 64 // channel maximum volume
+	minPeriod      = 1
+	maxPeriod      = 65535
 	mixBufferLen   = 8192 // samples per channel
 	noNoteVolume   = 255  // note data does not have a volume set
 
@@ -275,15 +279,9 @@ var (
 func (c *channel) portaToNote() {
 	period := c.period
 	if period < c.portaPeriod {
-		period += c.portaSpeed * 4
-		if period > c.portaPeriod {
-			period = c.portaPeriod
-		}
+		period = min(period+c.portaSpeed*4, c.portaPeriod)
 	} else if period > c.portaPeriod {
-		period -= c.portaSpeed * 4
-		if period < c.portaPeriod {
-			period = c.portaPeriod
-		}
+		period = max(period-c.portaSpeed*4, c.portaPeriod)
 	}
 	c.period = period
 }
@@ -391,19 +389,8 @@ func (p *Player) State() PlayerState {
 // the song then it will be set back to the beginning of the final order. No
 // attempt is made to reset the player internals.
 func (p *Player) SeekTo(order, row int) {
-	if order < 0 {
-		order = 0
-	} else if order >= len(p.Orders) {
-		order = len(p.Orders) - 1
-	}
-	p.order = order
-
-	if row < 0 {
-		row = 0
-	} else if row >= 64 {
-		row = 63
-	}
-	p.row = row - 1
+	p.order = clamp(order, 0, len(p.Orders)-1)
+	p.row = clamp(row, 0, 63) - 1
 	p.tick = p.Speed - 1
 }
 
@@ -496,15 +483,9 @@ func (p *Player) channelTick(c *channel, ci, tick int) {
 
 	switch c.effect {
 	case effectPortamentoUp:
-		c.period -= int(c.param) * 4
-		if c.period < 1 {
-			c.period = 1
-		}
+		c.period = max(c.period-int(c.param)*4, minPeriod)
 	case effectPortamentoDown:
-		c.period += int(c.param) * 4
-		if c.period > 65535 {
-			c.period = 65535
-		}
+		c.period = min(c.period+int(c.param)*4, maxPeriod)
 	case effectPortaToNote:
 		c.portaToNote()
 	case effectVibrato:
@@ -529,17 +510,11 @@ func (p *Player) channelTick(c *channel, ci, tick int) {
 		// Dxy
 		if x > 0 && y == 0 {
 			// slide the volume up by x units
-			c.volume += int(x)
-			if c.volume > maxVolume {
-				c.volume = maxVolume
-			}
+			c.volume = min(c.volume+int(x), maxVolume)
 		}
 		if x == 0 && y > 0 {
 			// slide the volume down by y units
-			c.volume -= int(y)
-			if c.volume < 0 {
-				c.volume = 0
-			}
+			c.volume = max(c.volume-int(y), minVolume)
 		}
 	case effectS3MPortamentoDown:
 		// Dxy
@@ -547,20 +522,14 @@ func (p *Player) channelTick(c *channel, ci, tick int) {
 		if c.memPortamento >= 0xE0 {
 			break
 		}
-		c.period += int(c.memPortamento) * 4
-		if c.period > 65535 {
-			c.period = 65535
-		}
+		c.period = min(c.period+int(c.memPortamento)*4, maxPeriod)
 	case effectS3MPortamentoUp:
 		// Dxy
 		// Fine and extra fine slides are not applied on in between ticks
 		if c.memPortamento >= 0xE0 {
 			break
 		}
-		c.period -= int(c.memPortamento) * 4
-		if c.period < 1 {
-			c.period = 1
-		}
+		c.period = max(c.period-int(c.memPortamento)*4, minPeriod)
 	case effectNoteRetrigVolSlide:
 		if c.param > 0 {
 			c.memRetrig = c.param
@@ -881,18 +850,12 @@ func (p *Player) sequenceTick() bool {
 				// DFF is a special case and means slide up by F units on tick 0
 				if x == 0xF && y != 0xF {
 					// slide volume down by y units
-					channel.volume -= int(y)
-					if channel.volume < 0 {
-						channel.volume = 0
-					}
+					channel.volume = max(channel.volume-int(y), minVolume)
 				}
 				// D2F slide up by 2 units on tick 0
 				if y == 0xF {
 					// slide volume up by x units
-					channel.volume += int(x)
-					if channel.volume > maxVolume {
-						channel.volume = maxVolume
-					}
+					channel.volume = min(channel.volume+int(x), maxVolume)
 				}
 			case effectS3MPortamentoDown:
 				if param > 0 {
@@ -910,9 +873,7 @@ func (p *Player) sequenceTick() bool {
 				case 0xF: // fine slide
 					channel.period += int(channel.memPortamento&0xF) * 4
 				}
-				if channel.period > 65535 {
-					channel.period = 65535
-				}
+				channel.period = min(channel.period, maxPeriod)
 			case effectS3MPortamentoUp:
 				if param > 0 {
 					channel.memPortamento = param
@@ -929,14 +890,9 @@ func (p *Player) sequenceTick() bool {
 				case 0xF: // fine slide
 					channel.period -= int(channel.memPortamento&0xF) * 4
 				}
-				if channel.period < 1 {
-					channel.period = 1
-				}
+				channel.period = max(channel.period, minPeriod)
 			case effectS3MGlobalVolume:
-				p.globalVolume = uint(param)
-				if p.globalVolume > maxVolume {
-					p.globalVolume = maxVolume
-				}
+				p.globalVolume = min(uint(param), uint(maxVolume))
 			}
 			rowDataIdx++
 		}
@@ -986,9 +942,7 @@ func (p *Player) mixChannels(nSamples, offset int) {
 		pos := channel.samplePosition
 		vol := channel.volume + channel.tremoloAdjust
 		vol = (vol * p.GlobalVolume) >> 6
-		if vol >= maxVolume {
-			vol = maxVolume
-		}
+		vol = min(vol, maxVolume)
 
 		// If the volume is off or the channel muted
 		if vol <= 0 || (p.Mute&(1<<ci)) != 0 {
@@ -1206,7 +1160,9 @@ func vibratoTremoloWaveFn(wave vibType, pos int) int {
 	return vib
 }
 
-func retrigVolume(mode, vol int) (outvol int) {
+func retrigVolume(mode, vol int) int {
+	var outvol int
+
 	switch mode {
 	case 1:
 		outvol = vol - 1
@@ -1239,14 +1195,8 @@ func retrigVolume(mode, vol int) (outvol int) {
 	default:
 		outvol = vol
 	}
-	if outvol < 0 {
-		outvol = 0
-	}
-	if outvol > maxVolume {
-		outvol = maxVolume
-	}
 
-	return
+	return clamp(outvol, minVolume, maxVolume)
 }
 
 func dumpf(format string, a ...interface{}) {
@@ -1265,6 +1215,11 @@ func noteStrFromPeriod(period int) string {
 	}
 
 	return "   "
+}
+
+// Clamps x in the range [l, h]
+func clamp[T cmp.Ordered](x, l, h T) T {
+	return max(min(x, h), l)
 }
 
 // Useful function to dump contents of the audio buffer

@@ -120,6 +120,42 @@ func TestPlayerInitialState(t *testing.T) {
 	}
 }
 
+func TestPlayerStartStop(t *testing.T) {
+	plr := newPlayerWithTestPattern([][]string{{}, {}}, t)
+	plr.Start()
+	if plr.IsPlaying() != true {
+		t.Error("Expected the player to be playing")
+	}
+
+	plr.Stop()
+	if plr.IsPlaying() != false {
+		t.Error("Expected the player to not be playing")
+	}
+}
+
+func TestSeekTo(t *testing.T) {
+	// Create a player with two rows, but only one pattern/order
+	plr := newPlayerWithTestPattern([][]string{{}, {}}, t)
+
+	cases := []struct {
+		Name                       string
+		Order, Row                 int
+		ExpectedOrder, ExpectedRow int
+	}{
+		{"Beginning", 0, 0, 0, 0},
+		{"One row in", 0, 1, 0, 1},
+		{"Invalid order before the beginning", -1, 1, 0, 1},
+		{"Invalid order past the end", 1, 0, 0, 0},
+	}
+	for _, tc := range cases {
+		plr.SeekTo(tc.Order, tc.Row)
+		plr.sequenceTick()
+		if plr.order != tc.ExpectedOrder || plr.row != tc.ExpectedRow {
+			t.Errorf("On %s, expected a seek to (%d,%d) to go to (%d,%d) but got (%d,%d) instead", tc.Name, tc.Order, tc.Row, tc.ExpectedOrder, tc.ExpectedRow, plr.order, plr.row)
+		}
+	}
+}
+
 func TestTwoChannels(t *testing.T) {
 	plr := newPlayerWithTestPattern([][]string{
 		{"A-4 1 33 ...", "C-3 1 .. S12"},
@@ -392,10 +428,14 @@ func TestEffectVolumeSlide(t *testing.T) {
 	}{
 		{"Slide down", [][]string{{"A-4  1 .. D01"}}, []int{60, 59, 58, 57, 56, 55}},
 		{"Slide down x2", [][]string{{"A-4  1 .. D02"}}, []int{60, 58, 56, 54, 52, 50}},
+		{"Slide down clamped", [][]string{{"A-4  1 2 D01"}}, []int{2, 1, 0, 0, 0, 0}},
 		{"Slide up", [][]string{{"A-4  1 01 D10"}}, []int{1, 2, 3, 4, 5, 6}},
 		{"Slide up x2", [][]string{{"A-4  1 01 D20"}}, []int{1, 3, 5, 7, 9, 11}},
+		{"Slide up clamped", [][]string{{"A-4  1 62 D10"}}, []int{62, 63, 64, 64, 64, 64}},
 		{"Fine slide down", [][]string{{"A-4  1 .. DF1"}}, []int{59, 59, 59, 59, 59, 59}},
+		{"Fine slide down clamped", [][]string{{"A-4  1 00 DF1"}}, []int{0, 0, 0, 0, 0, 0}},
 		{"Fine slide up", [][]string{{"A-4  1 05 D1F"}}, []int{6, 6, 6, 6, 6, 6}},
+		{"Fine slide up clamped", [][]string{{"A-4  1 63 D1F"}}, []int{64, 64, 64, 64, 64, 64}},
 		{"Memory", [][]string{{"A-4  1 .. D01"}, {"... .. .. D00"}}, []int{60, 59, 58, 57, 56, 55, 55, 54, 53, 52, 51, 50}},
 		{"Memory fine slide", [][]string{{"A-4  1 .. DF1"}, {"... .. .. D00"}}, []int{59, 59, 59, 59, 59, 59, 58, 58, 58, 58, 58, 58}},
 		// TODO - fast volume slides, not supported yet

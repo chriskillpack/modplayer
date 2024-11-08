@@ -773,6 +773,36 @@ func TestEffectVibrato(t *testing.T) {
 	}
 }
 
+func TestEffectTremor(t *testing.T) {
+	cases := []struct {
+		Name     string
+		Notes    [][]string
+		TremorOn []bool
+	}{
+		{"No tremor", [][]string{{"A-4  1 .. ..."}}, []bool{false, false, false, false, false, false}},
+		{"Equal tremor", [][]string{{"A-4  1 .. I11"}}, []bool{true, true, false, false, true, true}},
+		{"Longer on", [][]string{{"A-4  1 .. I21"}}, []bool{true, true, true, false, false, true}},
+		{"Longer off", [][]string{{"A-4  1 .. I12"}}, []bool{true, true, false, false, false, true}},
+		{"Memory", [][]string{{"A-4  1 .. I11"}, {"... .. .. I00"}}, []bool{true, true, false, false, true, true, false, false, true, true, false, false}},
+	}
+	const speed = 6
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			plr := newPlayerWithTestPattern(tc.Notes, t)
+			plr.setSpeed(speed)
+
+			c := &plr.channels[0]
+			nrows := len(tc.Notes)
+			for i := range nrows * speed {
+				plr.sequenceTick()
+				if c.tremorOn != tc.TremorOn[i] {
+					t.Errorf("On tick %d got (tremor) (%t) expected (%t)", i, c.tremorOn, tc.TremorOn[i])
+				}
+			}
+		})
+	}
+}
+
 func TestEffectVibratoVolSlide(t *testing.T) {
 	cases := []struct {
 		Name        string

@@ -46,6 +46,7 @@ const (
 	effectS3MPortamentoUp    = 0x23
 	effectS3MGlobalVolume    = 0x24
 	effectNoteRetrigVolSlide = 0x25
+	effectTremor             = 0x26
 
 	// Extended effects (Exy), x = effect, y effect param
 	effectExtendedVibratoWaveform  = 0x4
@@ -181,6 +182,12 @@ type channel struct {
 	vibratoAdjust   int
 	vibratoWaveform vibType
 
+	memTremor    byte
+	tremorVolume int // not the volume of the tremor, but a copy of the channel volume that
+	// tremor needs to restore to when tremor is off.
+	tremorOn    bool
+	tremorPhase int
+
 	effect        byte
 	param         byte
 	effectCounter int
@@ -307,7 +314,7 @@ func (c *channel) volumeSlide(param byte) {
 		vol -= int(param & 0xF)
 		vol = max(vol, 0)
 	}
-	c.volume = vol
+	c.setVolume(vol)
 }
 
 func SetDumpWriter(w io.Writer) { dumpW = w }
@@ -453,7 +460,7 @@ func (p *Player) reset() {
 		channel := &p.channels[i]
 		channel.sample = -1
 		channel.sampleToPlay = -1
-		channel.volume = 0
+		channel.setVolume(0)
 		channel.volumeToPlay = 0
 		channel.period = 0
 		channel.periodToPlay = 0
@@ -470,6 +477,9 @@ func (p *Player) reset() {
 		channel.memVolSlide = 0
 		channel.memPortamento = 0
 		channel.memRetrig = 0
+		channel.memTremor = 0
+		channel.tremorOn = false
+		channel.tremorPhase = 0
 	}
 }
 
@@ -484,7 +494,9 @@ func (p *Player) setSpeed(speed int) {
 	p.tick = p.Speed - 1 // TODO - is setting the tick like this appropriate?
 }
 
-func (p *Player) channelTick(c *channel, _ /* ci */, _ /* tick */ int) {
+// channelTick is called for every tick between rows except for tick 0. So for
+// a speed 6 song channelTick would be called on ticks 1, 2, 3, 4 and 5.
+func (p *Player) channelTick(c *channel) {
 	c.effectCounter++
 
 	switch c.effect {
@@ -530,11 +542,11 @@ func (p *Player) channelTick(c *channel, _ /* ci */, _ /* tick */ int) {
 		// are Dxy then y takes precedence and x is ignored.
 		if y > 0 {
 			// slide the volume down by y units
-			c.volume = max(c.volume-int(y), minVolume)
+			c.setVolume(max(c.volume-int(y), minVolume))
 			break
 		}
 		// slide the volume up by x units
-		c.volume = min(c.volume+int(x), maxVolume)
+		c.setVolume(min(c.volume+int(x), maxVolume))
 	case effectS3MPortamentoDown:
 		// Dxy
 		// Fine and extra fine slides are not applied on in between ticks
@@ -555,19 +567,21 @@ func (p *Player) channelTick(c *channel, _ /* ci */, _ /* tick */ int) {
 		}
 		if c.effectCounter >= int(c.memRetrig&0xF) {
 			c.triggerNote(c.period, c.sample, p.order, p.row, p.tick)
-			c.volume = retrigVolume(int(c.memRetrig>>4), c.volume)
+			c.setVolume(retrigVolume(int(c.memRetrig>>4), c.volume))
 			c.effectCounter = 0
 		}
+	case effectTremor:
+		c.tremor()
 	case effectExtended:
 		switch c.param >> 4 {
 		case effectExtendedNoteCut:
 			if c.effectCounter == int(c.param&0xF) {
-				c.volume = 0
+				c.setVolume(0)
 			}
 		case effectExtendedNoteDelay:
 			if c.effectCounter == int(c.param&0xF) {
 				c.triggerNote(c.periodToPlay, c.sampleToPlay, p.order, p.row, p.tick)
-				c.volume = c.volumeToPlay
+				c.setVolume(c.volumeToPlay)
 			}
 		}
 	}
@@ -702,7 +716,7 @@ func (p *Player) sequenceTick() bool {
 			} else {
 				if noteRetrigMem {
 					channel.triggerNote(channel.period, channel.sample, p.order, p.row, p.tick)
-					channel.volume = retrigVolume(int(channel.memRetrig>>4), channel.volume)
+					channel.setVolume(retrigVolume(int(channel.memRetrig>>4), channel.volume))
 				}
 			}
 
@@ -711,7 +725,7 @@ func (p *Player) sequenceTick() bool {
 				if noteDelay {
 					channel.volumeToPlay = volume
 				} else {
-					channel.volume = volume
+					channel.setVolume(volume)
 					channel.volumeToPlay = channel.volume
 				}
 			}
@@ -844,22 +858,14 @@ func (p *Player) sequenceTick() bool {
 						channel.tremoloWaveform = vibType(param & 0xF)
 					}
 				case effectExtendedFineVolSlideUp:
-					vol := channel.volume
-					vol += int(param & 0x0F)
-					if vol > maxVolume {
-						vol = maxVolume
-					}
-					channel.volume = vol
+					vol := min(channel.volume+int(param&0x0F), maxVolume)
+					channel.setVolume(vol)
 				case effectExtendedFineVolSlideDown:
-					vol := channel.volume
-					vol -= int(param & 0xF)
-					if vol < 0 {
-						vol = 0
-					}
-					channel.volume = vol
+					vol := max(channel.volume-int(param&0xF), 0)
+					channel.setVolume(vol)
 				case effectExtendedNoteCut:
 					if param&0xF == 0 {
-						channel.volume = 0
+						channel.setVolume(0)
 					}
 				}
 			case effectS3MVolumeSlide:
@@ -879,12 +885,12 @@ func (p *Player) sequenceTick() bool {
 				// DFF is a special case and means slide up by F units on tick 0
 				if x == 0xF && y != 0xF {
 					// slide volume down by y units
-					channel.volume = max(channel.volume-int(y), minVolume)
+					channel.setVolume(max(channel.volume-int(y), minVolume))
 				}
 				// D2F slide up by 2 units on tick 0
 				if y == 0xF {
 					// slide volume up by x units
-					channel.volume = min(channel.volume+int(x), maxVolume)
+					channel.setVolume(min(channel.volume+int(x), maxVolume))
 				}
 			case effectS3MPortamentoDown:
 				if param > 0 {
@@ -922,6 +928,11 @@ func (p *Player) sequenceTick() bool {
 				channel.period = max(channel.period, minPeriod)
 			case effectS3MGlobalVolume:
 				p.globalVolume = min(uint(param), uint(maxVolume))
+			case effectTremor:
+				if param > 0 {
+					channel.memTremor = param
+				}
+				channel.tremor()
 			}
 			rowDataIdx++
 		}
@@ -932,11 +943,16 @@ func (p *Player) sequenceTick() bool {
 	} else {
 		// channel tick
 		for i := range p.Song.Channels {
-			p.channelTick(&p.channels[i], i, p.tick)
+			p.channelTick(&p.channels[i])
 		}
 	}
 
 	return finished
+}
+
+func (c *channel) setVolume(volume int) {
+	c.volume = volume
+	c.tremorVolume = volume
 }
 
 func (c *channel) triggerNote(period, sample, order, row, tick int) {
@@ -947,9 +963,11 @@ func (c *channel) triggerNote(period, sample, order, row, tick int) {
 	c.vibratoPhase = 0
 	c.vibratoAdjust = 0
 	c.tremoloAdjust = 0
+	c.tremorOn = false
 	c.trigOrder = order
 	c.trigRow = row
 	c.trigTick = tick
+	c.tremorPhase = 0
 }
 
 func (p *Player) mixChannels(nSamples, offset int) {
@@ -972,6 +990,11 @@ func (p *Player) mixChannels(nSamples, offset int) {
 		vol := channel.volume + channel.tremoloAdjust
 		vol = (vol * p.GlobalVolume) >> 6
 		vol = min(vol, maxVolume)
+
+		// Here we do tremor effect processing
+		if channel.tremorOn {
+			vol = 0
+		}
 
 		// If the volume is off or the channel muted
 		if vol <= 0 || (p.Mute&(1<<ci)) != 0 {
@@ -1157,6 +1180,28 @@ func (c *channel) vibrato() {
 
 func (c *channel) tremolo() {
 	c.tremoloAdjust = (vibratoTremoloWaveFn(c.tremoloWaveform, c.tremoloPhase) * c.tremoloDepth) >> 7
+}
+
+func (c *channel) tremor() {
+	x := int(c.memTremor>>4) + 1
+	y := int(c.memTremor&0xF) + 1
+
+	// Tremor first plays the note at the current volume and then turns volume to zero.
+	// ST3: Whether note volume is restored after the row finished seems to vary, playing
+	// these notes multiple times over yields a different result (speed 6)
+	// C-3 01 .. I11
+	// ... .. .. I00
+	// ... .. .. I00
+	// Milkytracker - tremor run always ends with note at volume 0 but playing
+
+	if c.tremorPhase%(x+y) >= x {
+		c.tremorOn = false
+	} else {
+		c.volume = c.tremorVolume
+		c.tremorOn = true
+	}
+
+	c.tremorPhase = (c.tremorPhase + 1) % (x + y)
 }
 
 // compute the vibrato adjustment and set it on the channel

@@ -560,6 +560,10 @@ func TestEffectTremolo(t *testing.T) {
 	}
 }
 
+func TestEffectTremor(t *testing.T) {
+	t.Skip("TODO")
+}
+
 func TestEffectRetrig(t *testing.T) {
 	type trigger struct {
 		Tick, Volume int

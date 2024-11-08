@@ -17,6 +17,7 @@ const (
 	s3mfx_PortamentoUp       = 0x6  // 'F'
 	s3mfx_TonePortamento     = 0x7  // 'G'
 	s3mfx_Vibrato            = 0x8  // 'H'
+	s3mfx_Tremor             = 0x9  // 'I'
 	s3mfx_SampleOffset       = 0xF  // 'O'
 	s3mfx_RetrigNoteVolSlide = 0x11 // 'Q'
 	s3mfx_Tremolo            = 0x12 // 'R'
@@ -351,6 +352,8 @@ func convertS3MEffect(efc, parm byte, _ptn, _row, _chn int) (effect byte, param 
 		effect = effectPortaToNote
 	case s3mfx_Vibrato:
 		effect = effectVibrato
+	case s3mfx_Tremor:
+		effect = effectTremor
 	case s3mfx_SampleOffset:
 		effect = effectSampleOffset
 	case s3mfx_Special:
@@ -384,6 +387,7 @@ func convertS3MEffect(efc, parm byte, _ptn, _row, _chn int) (effect byte, param 
 	case s3mfx_Tremolo:
 		effect = effectTremolo
 	default:
+		fmt.Printf("Unsupported effect %d/%d on ptn %d, row %d, chn %d\n", effect, param, _ptn, _row, _chn)
 		// disable the effect for now
 		effect = 0
 		param = 0

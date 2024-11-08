@@ -40,6 +40,7 @@ const (
 	effectS3MPortamentoUp    = 0x23
 	effectS3MGlobalVolume    = 0x24
 	effectNoteRetrigVolSlide = 0x25
+	effectTremor             = 0x26
 
 	// Extended effects (Exy), x = effect, y effect param
 	effectExtendedVibratoWaveform  = 0x4
@@ -174,6 +175,9 @@ type channel struct {
 	vibratoPhase    int
 	vibratoAdjust   int
 	vibratoWaveform vibType
+
+	tremorCount int
+	memTremor   byte
 
 	effect        byte
 	param         byte
@@ -937,6 +941,11 @@ func (p *Player) sequenceTick() bool {
 				if p.globalVolume > maxVolume {
 					p.globalVolume = maxVolume
 				}
+			case effectTremor:
+				if param > 0 {
+					channel.memTremor = param
+				}
+				channel.tremor()
 			}
 			rowDataIdx++
 		}
@@ -1178,6 +1187,22 @@ func (c *channel) vibrato() {
 
 func (c *channel) tremolo() {
 	c.tremoloAdjust = (vibratoTremoloWaveFn(c.tremoloWaveform, c.tremoloPhase) * c.tremoloDepth) >> 7
+}
+
+func (c *channel) tremor(tick int) {
+	x := int(c.memTremor>>4) + 1
+	y := int(c.memTremor&0xF) + 1
+
+	// Tremor first plays the note at the current volume and then turns volume to zero.
+	// ST3: Whether note volume is restored after the row finished seems to vary, playing
+	// these notes multiple times over yields a different result (speed 6)
+	// C-3 01 .. I11
+	// ... .. .. I00
+	// ... .. .. I00
+	// Milkytracker - tremor run always ends with note at volume 0 but playing
+	if tick%(x+y) >= x {
+		c.volume = 0
+	}
 }
 
 // compute the vibrato adjustment and set it on the channel

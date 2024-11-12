@@ -432,6 +432,22 @@ func TestNotePortamentoVol(t *testing.T) {
 	validateChan(c, 0, 4048, 15, t) // period has shifted towards B-4 a little
 }
 
+// Tests a specific bug: a typo in the player retrig logic caused the note to be
+// retriggered for portamento + volume slide effects.
+func TestNotePortamentoVolSlide(t *testing.T) {
+	plr := newPlayerWithMODTestPattern([][]string{{"A-4  1 ..."}, {"B-4 .. 301"}, {"B-4 .. 501"}}, t)
+	plr.sequenceTick()
+	advanceToNextRow(plr) // run to row 1 and process first tick
+
+	c := &plr.channels[0]
+	tr := c.trigRow
+	advanceToNextRow(plr) // run to row 2 and process first tick
+
+	if c.trigRow != tr {
+		t.Errorf("Note triggered when it shouldn't have")
+	}
+}
+
 func TestEffectSetSpeed(t *testing.T) {
 	plr := newPlayerWithTestPattern([][]string{{"... .. .. A04"}}, t)
 	if plr.Speed != 2 {
@@ -535,6 +551,42 @@ func TestEffectMODVolumeSlide(t *testing.T) {
 				plr.sequenceTick()
 				if c.volume != tc.Volumes[i] {
 					t.Errorf("On tick %d, expected volume %d, got %d", i, tc.Volumes[i], c.volume)
+				}
+			}
+		})
+	}
+}
+
+func TestEffectMODPortamentoVolSlide(t *testing.T) {
+	cases := []struct {
+		Name    string
+		Notes   [][]string
+		Periods []int
+		Volumes []int
+	}{
+		{"Portamento no vol slide", [][]string{{"A-4  1 ..."}, {"B-4 .. 302"}, {"... .. 500"}}, []int{4028, 4020, 4012, 4004, 3996, 3988}, []int{60, 60, 60, 60, 60, 60}},
+		{"Portamento vol slide down", [][]string{{"A-4  1 ..."}, {"B-4 .. 302"}, {"... .. 501"}}, []int{4028, 4020, 4012, 4004, 3996, 3988}, []int{60, 59, 58, 57, 56, 55}},
+		{"Portamento vol slide down reach note", [][]string{{"A-4  1 ..."}, {"B-4 .. 312"}, {"... .. 501"}}, []int{3708, 3636, periodB4, periodB4, periodB4, periodB4}, []int{60, 59, 58, 57, 56, 55}},
+		{"Portamento vol slide up", [][]string{{"A-4  1 C10"}, {"B-4 .. 302"}, {"... .. 520"}}, []int{4028, 4020, 4012, 4004, 3996, 3988}, []int{16, 18, 20, 22, 24, 26}},
+		{"Portamento vol slide up reach note", [][]string{{"A-4  1 C10"}, {"B-4 .. 312"}, {"... .. 520"}}, []int{3708, 3636, periodB4, periodB4, periodB4, periodB4}, []int{16, 18, 20, 22, 24, 26}},
+	}
+	const speed = 6
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			plr := newPlayerWithMODTestPattern(tc.Notes, t)
+			plr.setSpeed(speed)
+			c := &plr.channels[0]
+
+			nrows := len(tc.Notes)
+
+			for i := 0; i < speed*nrows; i++ {
+				plr.sequenceTick()
+				if i < speed*2 {
+					continue
+				}
+
+				if c.period != tc.Periods[i-speed*2] || c.volume != tc.Volumes[i-speed*2] {
+					t.Errorf("On tick %d, expected (period,volume) to be (%d,%d), but got (%d,%d)", i, tc.Periods[i-speed*2], tc.Volumes[i-speed*2], c.period, c.volume)
 				}
 			}
 		})

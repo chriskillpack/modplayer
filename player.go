@@ -650,7 +650,7 @@ func (p *Player) sequenceTick() bool {
 			noteDelay := effect == effectExtended && param>>4 == effectExtendedNoteDelay
 			noteRetrigMem := effect == effectNoteRetrigVolSlide && param == 0
 			portaToNote := effect == effectPortaToNote
-			portaToNoteVolSlide := effect == effectPortaToNote // TODO: typo?
+			portaToNoteVolSlide := effect == effectPortaToNoteVolSlide
 			playImmediately := !portaToNote && !portaToNoteVolSlide && !noteDelay
 
 			channel.periodToPlay = channel.period

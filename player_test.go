@@ -100,6 +100,9 @@ func TestPlayerInitialState(t *testing.T) {
 	if player.row != -1 {
 		t.Errorf("Expected player on row -1, got %d\n", player.row)
 	}
+	if player.volBoost != 1 {
+		t.Errorf("Expected volume boost of 1, got %d\n", player.volBoost)
+	}
 
 	for i := 0; i < player.Song.Channels; i++ {
 		c := &player.channels[i]
@@ -110,7 +113,6 @@ func TestPlayerInitialState(t *testing.T) {
 		if c.pan != int(player.Song.pan[i]) {
 			t.Errorf("Expected channel %d to have pan %d, got %d\n", i, player.Song.pan[i], c.pan)
 		}
-
 		if c.vibratoWaveform != vibratoSine {
 			t.Errorf("Expected vibrato waveform to default to 0, got %d", c.vibratoWaveform)
 		}
@@ -152,6 +154,35 @@ func TestSeekTo(t *testing.T) {
 		plr.sequenceTick()
 		if plr.order != tc.ExpectedOrder || plr.row != tc.ExpectedRow {
 			t.Errorf("On %s, expected a seek to (%d,%d) to go to (%d,%d) but got (%d,%d) instead", tc.Name, tc.Order, tc.Row, tc.ExpectedOrder, tc.ExpectedRow, plr.order, plr.row)
+		}
+	}
+}
+
+func TestSetVolumeBoost(t *testing.T) {
+	plr, err := NewPlayer(&testSong, 44100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		Name             string
+		VolBoost         int
+		ExpectedVolBoost int
+		IsError          bool
+	}{
+		{"Invalid input 0", 0, 1, true},
+		{"Invalid input -1", -1, 1, true},
+		{"Invalid inpute 10", 10, 1, true},
+
+		{"Valid input 1", 1, 1, false},
+		{"Valid input 2", 2, 2, false},
+		{"Valid input 3", 3, 3, false},
+		{"Valid input 4", 4, 4, false},
+	}
+	for _, tc := range cases {
+		err := plr.SetVolumeBoost(tc.VolBoost)
+		if plr.volBoost != uint(tc.ExpectedVolBoost) || (err == nil && tc.IsError) || (err != nil && !tc.IsError) {
+			t.Errorf("Expected volboost of %d with error %t, got %d and %q", tc.ExpectedVolBoost, tc.IsError, plr.volBoost, err)
 		}
 	}
 }
@@ -420,6 +451,24 @@ func TestEffectPatternBreak(t *testing.T) {
 	t.Skip("TODO")
 }
 
+func TestEffectMODSetVolume(t *testing.T) {
+	cases := []struct {
+		Name   string
+		Notes  [][]string
+		Volume int
+	}{
+		{"Set volume", [][]string{{"A-4  1 C07"}}, 7},
+		{"Invalid volume", [][]string{{"A-4  1 C70"}}, 64},
+	}
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			plr := newPlayerWithMODTestPattern(tc.Notes, t)
+			plr.sequenceTick()
+			validateChan(&plr.channels[0], 0, periodA4, tc.Volume, t)
+		})
+	}
+}
+
 func TestEffectVolumeSlide(t *testing.T) {
 	cases := []struct {
 		Name    string
@@ -453,6 +502,39 @@ func TestEffectVolumeSlide(t *testing.T) {
 				plr.sequenceTick()
 				if c.volume != tc.Volumes[i] {
 					t.Errorf("On tick %d expected volume %d, got %d", i, tc.Volumes[i], c.volume)
+				}
+			}
+		})
+	}
+}
+
+func TestEffectMODVolumeSlide(t *testing.T) {
+	cases := []struct {
+		Name    string
+		Notes   [][]string
+		Volumes []int
+	}{
+		{"No slide", [][]string{{"A-4  1 A00"}}, []int{60, 60, 60, 60, 60, 60}},
+		{"Slide down", [][]string{{"A-4  1 A01"}}, []int{60, 59, 58, 57, 56, 55}},
+		{"Slide down faster", [][]string{{"A-4  1 A04"}}, []int{60, 56, 52, 48, 44, 40}},
+		{"Slide up", [][]string{{"A-4  1 C10"}, {"... .. A10"}}, []int{16, 16, 16, 16, 16, 16, 16, 17, 18, 19, 20, 21, 22}},
+		{"Slide up faster", [][]string{{"A-4  1 C10"}, {"... .. A40"}}, []int{16, 16, 16, 16, 16, 16, 16, 20, 24, 28, 32, 36, 40}},
+		{"Slide down limits", [][]string{{"A-4  1 C03"}, {"... .. A01"}}, []int{3, 3, 3, 3, 3, 3, 3, 2, 1, 0, 0, 0}},
+		{"Slide up limits", [][]string{{"A-4  1 A10"}}, []int{60, 61, 62, 63, 64, 64}},
+	}
+	const speed = 6
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			plr := newPlayerWithMODTestPattern(tc.Notes, t)
+			plr.setSpeed(speed)
+
+			nrows := len(tc.Notes)
+
+			c := &plr.channels[0]
+			for i := 0; i < speed*nrows; i++ {
+				plr.sequenceTick()
+				if c.volume != tc.Volumes[i] {
+					t.Errorf("On tick %d, expected volume %d, got %d", i, tc.Volumes[i], c.volume)
 				}
 			}
 		})

@@ -744,8 +744,6 @@ func (p *Player) sequenceTick() bool {
 			case effectSampleOffset:
 				// TODO: clamp samplePosition to end of sample
 				channel.samplePosition = uint(param) << 24
-			// case effectSetVolume:
-			// 	channel.volume = int(param)
 			case effectJumpToPattern:
 				// TODO - this effect currently activates on tick 0 and before
 				// the rest of the channels have been processed. Experimentation

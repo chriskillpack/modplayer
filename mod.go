@@ -135,16 +135,7 @@ func NewMODSongFromBytes(songBytes []byte) (*Song, error) {
 				}
 			}
 
-			if n.Effect == effectSetVolume {
-				n.Volume = int(n.Param)
-			} else {
-				n.Volume = 0xFF // no volume set on this note
-			}
-
-			if n.Effect == effectExtended && (n.Param>>4 == effectExtendedNoteRetrig) {
-				n.Effect = effectNoteRetrigVolSlide
-				n.Param = n.Param & 0xF
-			}
+			modPrepareNote(&n)
 
 			song.patterns[i][p] = n
 		}
@@ -229,6 +220,19 @@ func noteFromMODbytes(nb []byte) note {
 		Pitch:  periodToPlayerNote(period),
 		Effect: nb[2] & 0xF,
 		Param:  nb[3],
+	}
+}
+
+func modPrepareNote(n *note) {
+	if n.Effect == effectSetVolume {
+		n.Volume = min(int(n.Param), maxVolume)
+	} else {
+		n.Volume = 0xFF // no volume set on this note
+	}
+
+	if n.Effect == effectExtended && (n.Param>>4 == effectExtendedNoteRetrig) {
+		n.Effect = effectNoteRetrigVolSlide
+		n.Param = n.Param & 0xF
 	}
 }
 

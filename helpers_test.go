@@ -1,11 +1,41 @@
 package modplayer
 
 import (
+	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
+
+	clone "github.com/huandu/go-clone/generic"
 )
+
+const testSampleLength = 1000
+
+var testSong Song = Song{
+	Title:        "testsong",
+	GlobalVolume: 64,
+	Speed:        2,
+	Tempo:        125,
+	Orders:       []byte{0},
+	Samples: []Sample{
+		{
+			Name:    "testins1",
+			Volume:  60,
+			C4Speed: 8363,
+			Length:  testSampleLength,
+			Data:    make([]int8, testSampleLength),
+		},
+		{
+			Name:    "testins2",
+			Volume:  55,
+			C4Speed: 8363,
+			Length:  testSampleLength,
+			Data:    make([]int8, testSampleLength),
+		},
+	},
+}
 
 func newTestPlayerFromMod(file string) (*Player, error) {
 	mod, err := os.ReadFile(file)
@@ -24,35 +54,13 @@ func newTestPlayerFromMod(file string) (*Player, error) {
 }
 
 func newPlayerWithTestPattern(pattern [][]string, t *testing.T) *Player {
-	noteData, nChannels := convertTestPatternData(pattern)
+	noteData, nChannels := convertTestPatternData(pattern, decodeS3MNote)
 
-	sampLength := 1000
-	song := &Song{
-		Title:        "testsong",
-		Channels:     nChannels,
-		GlobalVolume: 64,
-		Speed:        2,
-		Tempo:        125,
-		Orders:       []byte{0},
-		Samples: []Sample{
-			{
-				Name:    "testins1",
-				Volume:  60,
-				C4Speed: 8363,
-				Length:  sampLength,
-				Data:    make([]int8, sampLength),
-			},
-			{
-				Name:    "testins2",
-				Volume:  55,
-				C4Speed: 8363,
-				Length:  sampLength,
-				Data:    make([]int8, sampLength),
-			},
-		},
-		patterns: noteData,
-	}
-	player, err := NewPlayer(song, 44100)
+	newSong := clone.Clone(testSong)
+	newSong.Channels = nChannels
+	newSong.patterns = noteData
+
+	player, err := NewPlayer(&newSong, 44100)
 	if err != nil {
 		t.Fatalf("Could not create test player: %e", err)
 		return nil
@@ -61,12 +69,28 @@ func newPlayerWithTestPattern(pattern [][]string, t *testing.T) *Player {
 	return player
 }
 
-// Takes input of the form
+func newPlayerWithMODTestPattern(pattern [][]string, t *testing.T) *Player {
+	noteData, nChannels := convertTestPatternData(pattern, decodeMODNote)
+
+	newSong := clone.Clone(testSong)
+	newSong.Channels = nChannels
+	newSong.patterns = noteData
+
+	player, err := NewPlayer(&newSong, 44100)
+	if err != nil {
+		t.Fatalf("Could not create test player: %e", err)
+		return nil
+	}
+	player.Start()
+	return player
+}
+
+// Takes S3M note data input of the form
 // A-4 12 22 S34  - play A-4 with instrument 12, at volume 22 with S3M effect S with parameter 34
 // ... .. 11 ...  - set volume to 11
 // ^^^ .. .. ...  - note off
 // <empty string> - skip
-func convertTestPatternData(pattern [][]string) ([][]note, int) {
+func convertTestPatternData(pattern [][]string, decodeFn func(string, *note)) ([][]note, int) {
 	nChannels := len(pattern[0])
 
 	notes := make([][]note, 1)
@@ -84,15 +108,32 @@ func convertTestPatternData(pattern [][]string) ([][]note, int) {
 			}
 
 			// Decode note
-			parts := colToParts(col)
-			note.Pitch = decodeNote(parts[0])
-			note.Sample = decodeInt(parts[1], 0)
-			note.Volume = decodeInt(parts[2], noNoteVolume)
-			note.Effect, note.Param = decodeEffect(parts[3])
+			decodeFn(col, note)
 		}
 	}
 
 	return notes, nChannels
+}
+
+// Decodes S3M columns into a note struct
+// A-4 12 22 B34  - play A-4 with instrument 12, at volume 22 with MOD effect B with parameter 34
+func decodeS3MNote(col string, dn *note) {
+	parts := colToParts(col)
+	dn.Pitch = decodeNote(parts[0])
+	dn.Sample = decodeInt(parts[1], 0)
+	dn.Volume = decodeInt(parts[2], noNoteVolume)
+	dn.Effect, dn.Param = decodeEffect(parts[3])
+}
+
+// Decodes MOD notes into a note struct
+// A-4 12 B34  - play A-4 with instrument 12, with MOD effect B with parameter 34
+func decodeMODNote(col string, dn *note) {
+	parts := colToParts(col)
+	dn.Pitch = decodeNote(parts[0])
+	dn.Sample = decodeInt(parts[1], 0)
+	dn.Effect, dn.Param = decodeMODEffect(parts[2])
+
+	modPrepareNote(dn)
 }
 
 // Advances to next row in the pattern, will have processed the first tick
@@ -126,13 +167,10 @@ func decodeNote(note string) playerNote {
 		return playerNote(0)
 	}
 
-	ni := 0
-	for ni = range notes {
-		if notes[ni] == note[0:2] {
-			break
-		}
+	ni := slices.Index(notes, note[0:2])
+	if ni == -1 {
+		panic(fmt.Sprintf("Invalid note %s", note[0:2]))
 	}
-
 	oct := int(note[2] - '2')
 	return playerNote(12 + 12*oct + ni)
 }
@@ -160,6 +198,20 @@ func decodeEffect(effect string) (byte, byte) {
 		panic(err)
 	}
 	return convertS3MEffect(effect[0]-'A'+1, byte(param), 0, 0, 0)
+}
+
+func decodeMODEffect(effect string) (byte, byte) {
+	if effect == "" || effect == "..." {
+		return 0, 0
+	}
+
+	param, err := strconv.ParseInt(effect[1:3], 16, 16)
+	fx, err2 := strconv.ParseInt(effect[0:1], 16, 16)
+	if err != nil || err2 != nil {
+		panic(fmt.Sprintf("%e,%e", err, err2))
+	}
+
+	return byte(fx), byte(param)
 }
 
 func validateChan(c *channel, sample, period, volume int, t *testing.T) {

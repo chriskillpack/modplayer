@@ -26,6 +26,7 @@ func NewMODSongFromBytes(songBytes []byte) (*Song, error) {
 		Tempo:        125,
 		GlobalVolume: maxVolume,
 		Samples:      make([]Sample, 31),
+		Type:         SongTypeMOD,
 	}
 
 	buf := bytes.NewReader(songBytes)

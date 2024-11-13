@@ -17,6 +17,7 @@ const (
 	s3mfx_PortamentoUp       = 0x6  // 'F'
 	s3mfx_TonePortamento     = 0x7  // 'G'
 	s3mfx_Vibrato            = 0x8  // 'H'
+	s3mfx_PortaVolSlide      = 0xC  // 'L'
 	s3mfx_SampleOffset       = 0xF  // 'O'
 	s3mfx_RetrigNoteVolSlide = 0x11 // 'Q'
 	s3mfx_Tremolo            = 0x12 // 'R'
@@ -33,7 +34,7 @@ func NewS3MSongFromBytes(songBytes []byte) (*Song, error) {
 		return nil, ErrInvalidS3M
 	}
 
-	song := &Song{}
+	song := &Song{Type: SongTypeS3M}
 	buf := bytes.NewReader(songBytes)
 	y := make([]byte, 28)
 	if _, err := buf.Read(y); err != nil {
@@ -351,6 +352,8 @@ func convertS3MEffect(efc, parm byte, _ptn, _row, _chn int) (effect byte, param 
 		effect = effectPortaToNote
 	case s3mfx_Vibrato:
 		effect = effectVibrato
+	case s3mfx_PortaVolSlide:
+		effect = effectPortaToNoteVolSlide
 	case s3mfx_SampleOffset:
 		effect = effectSampleOffset
 	case s3mfx_Special:

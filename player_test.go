@@ -503,6 +503,7 @@ func TestEffectVolumeSlide(t *testing.T) {
 		{"Fine slide up clamped", [][]string{{"A-4  1 63 D1F"}}, []int{64, 64, 64, 64, 64, 64}},
 		{"Memory", [][]string{{"A-4  1 .. D01"}, {"... .. .. D00"}}, []int{60, 59, 58, 57, 56, 55, 55, 54, 53, 52, 51, 50}},
 		{"Memory fine slide", [][]string{{"A-4  1 .. DF1"}, {"... .. .. D00"}}, []int{59, 59, 59, 59, 59, 59, 58, 58, 58, 58, 58, 58}},
+		{"Down takes precedence", [][]string{{"A-4  1 .. D21"}}, []int{60, 59, 58, 57, 56, 55}},
 		// TODO - fast volume slides, not supported yet
 	}
 	const speed = 6
@@ -535,8 +536,9 @@ func TestEffectMODVolumeSlide(t *testing.T) {
 		{"Slide down faster", [][]string{{"A-4  1 A04"}}, []int{60, 56, 52, 48, 44, 40}},
 		{"Slide up", [][]string{{"A-4  1 C10"}, {"... .. A10"}}, []int{16, 16, 16, 16, 16, 16, 16, 17, 18, 19, 20, 21, 22}},
 		{"Slide up faster", [][]string{{"A-4  1 C10"}, {"... .. A40"}}, []int{16, 16, 16, 16, 16, 16, 16, 20, 24, 28, 32, 36, 40}},
-		{"Slide down limits", [][]string{{"A-4  1 C03"}, {"... .. A01"}}, []int{3, 3, 3, 3, 3, 3, 3, 2, 1, 0, 0, 0}},
-		{"Slide up limits", [][]string{{"A-4  1 A10"}}, []int{60, 61, 62, 63, 64, 64}},
+		{"Slide down clamped", [][]string{{"A-4  1 C03"}, {"... .. A01"}}, []int{3, 3, 3, 3, 3, 3, 3, 2, 1, 0, 0, 0}},
+		{"Slide up clamped", [][]string{{"A-4  1 A10"}}, []int{60, 61, 62, 63, 64, 64}},
+		// Volume slide parameter precedence is untested on MOD so we don't pick one
 	}
 	const speed = 6
 	for _, tc := range cases {
@@ -658,6 +660,39 @@ func TestEffectTonePortamento(t *testing.T) {
 					if c.period != tc.Periods[i-speed] {
 						t.Errorf("On tick %d expected period %d, got %d", i, tc.Periods[i-speed], c.period)
 					}
+				}
+			}
+		})
+	}
+}
+
+func TestEffectPortaVolSlide(t *testing.T) {
+	cases := []struct {
+		Name    string
+		Notes   [][]string
+		Periods []int
+		Volumes []int
+	}{
+		{"Porta and vol slide down", [][]string{{"A-4  1 .. ..."}, {"B-4  1 .. G01"}, {"... .. .. L01"}}, []int{4048, 4044, 4040, 4036, 4032, 4028}, []int{60, 59, 58, 57, 56, 55}},
+		{"Porta and vol slide up", [][]string{{"A-4  1 10 ..."}, {"B-4  1 10 G01"}, {"... .. .. L10"}}, []int{4048, 4044, 4040, 4036, 4032, 4028}, []int{10, 11, 12, 13, 14, 15}},
+		{"Memory", [][]string{{"A-4  1 10 ..."}, {"B-4  1 10 G01"}, {"... .. .. L10"}, {"... .. .. L00"}}, []int{4028, 4024, 4020, 4016, 4012, 4008}, []int{15, 16, 17, 18, 19, 20}},
+		// TODO - test that there are no fine volume slides
+	}
+	const speed = 6
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			plr := newPlayerWithTestPattern(tc.Notes, t)
+			plr.setSpeed(speed)
+
+			nrows := len(tc.Notes)
+			c := &plr.channels[0]
+			for i := -speed * (nrows - 1); i < speed; i++ {
+				plr.sequenceTick()
+				if i < 0 {
+					continue
+				}
+				if c.period != tc.Periods[i] || c.volume != tc.Volumes[i] {
+					t.Errorf("On tick %d, expected (period,volume) to be (%d,%d), got (%d,%d)", i+speed*(nrows-1), tc.Periods[i], tc.Volumes[i], c.period, c.volume)
 				}
 			}
 		})

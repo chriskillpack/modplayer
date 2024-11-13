@@ -206,11 +206,19 @@ type Song struct {
 	Tempo        int // in beats per minute
 	Speed        int // number of tempo ticks before advancing to the next row
 	GlobalVolume int
+	Type         SongType
 
 	Samples  []Sample
 	patterns [][]note
 	pan      [32]byte
 }
+
+type SongType int
+
+const (
+	SongTypeMOD SongType = iota + 1
+	SongTypeS3M
+)
 
 // Sample holds information about an instrument sample including sample data
 type Sample struct {
@@ -286,18 +294,14 @@ func (c *channel) portaToNote() {
 	c.period = period
 }
 
-func (c *channel) volumeSlide() {
+func (c *channel) volumeSlide(param byte) {
 	vol := c.volume
-	if (c.param >> 4) > 0 {
-		vol += int(c.param >> 4)
-		if vol > maxVolume {
-			vol = maxVolume
-		}
-	} else if c.param != 0 {
-		vol -= int(c.param & 0xF)
-		if vol < 0 {
-			vol = 0
-		}
+	if (param >> 4) > 0 {
+		vol += int(param >> 4)
+		vol = min(vol, maxVolume)
+	} else if param != 0 {
+		vol -= int(param & 0xF)
+		vol = max(vol, 0)
 	}
 	c.volume = vol
 }
@@ -493,12 +497,16 @@ func (p *Player) channelTick(c *channel, ci, tick int) {
 		c.vibratoPhase = (c.vibratoPhase + c.vibratoSpeed) & 63
 	case effectPortaToNoteVolSlide:
 		c.portaToNote()
-		c.volumeSlide()
+		if p.Song.Type == SongTypeS3M {
+			c.volumeSlide(c.memVolSlide)
+		} else {
+			c.volumeSlide(c.param)
+		}
 	case effectTremolo:
 		c.tremolo()
 		c.tremoloPhase = (c.tremoloPhase + c.tremoloSpeed) & 63
 	case effectVolumeSlide:
-		c.volumeSlide()
+		c.volumeSlide(c.param)
 	case effectS3MVolumeSlide:
 		// Fine slides are not applied on in between ticks
 		x := c.memVolSlide >> 4
@@ -508,14 +516,15 @@ func (p *Player) channelTick(c *channel, ci, tick int) {
 		}
 
 		// Dxy
-		if x > 0 && y == 0 {
-			// slide the volume up by x units
-			c.volume = min(c.volume+int(x), maxVolume)
-		}
-		if x == 0 && y > 0 {
+		// Strictly speaking these values should be either Dx0 or D0y. When they
+		// are Dxy then y takes precedence and x is ignored.
+		if y > 0 {
 			// slide the volume down by y units
 			c.volume = max(c.volume-int(y), minVolume)
+			break
 		}
+		// slide the volume up by x units
+		c.volume = min(c.volume+int(x), maxVolume)
 	case effectS3MPortamentoDown:
 		// Dxy
 		// Fine and extra fine slides are not applied on in between ticks
@@ -800,6 +809,11 @@ func (p *Player) sequenceTick() bool {
 						loopChannel = i
 					}
 				}
+			case effectPortaToNoteVolSlide:
+				// S3M supports memory, MOD does not
+				if p.Song.Type == SongTypeS3M && param > 0 {
+					channel.memVolSlide = param
+				}
 			case effectExtended:
 				switch param >> 4 {
 				case effectExtendedVibratoWaveform:
@@ -807,7 +821,6 @@ func (p *Player) sequenceTick() bool {
 						channel.vibratoWaveform = vibType(param & 0xF)
 					}
 					// TODO - retrig controls
-					break
 				case effectExtendedTremoloWaveform:
 					if param&0xF < 4 {
 						channel.tremoloWaveform = vibType(param & 0xF)

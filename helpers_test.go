@@ -57,6 +57,7 @@ func newPlayerWithTestPattern(pattern [][]string, t *testing.T) *Player {
 	noteData, nChannels := convertTestPatternData(pattern, decodeS3MNote)
 
 	newSong := clone.Clone(testSong)
+	newSong.Type = SongTypeS3M
 	newSong.Channels = nChannels
 	newSong.patterns = noteData
 
@@ -73,6 +74,7 @@ func newPlayerWithMODTestPattern(pattern [][]string, t *testing.T) *Player {
 	noteData, nChannels := convertTestPatternData(pattern, decodeMODNote)
 
 	newSong := clone.Clone(testSong)
+	newSong.Type = SongTypeMOD
 	newSong.Channels = nChannels
 	newSong.patterns = noteData
 

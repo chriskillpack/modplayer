@@ -1,0 +1,7 @@
+I don't think the crackle is a bug in the player. I think it is in portaudio or lower level.
+
+I have captured the generated output for a good run and one with crackle, good_output.txt and crackle_output.txt.
+
+The generated audio data is the same (using diff). I ran with the revert disabled.
+
+I'm currently trying to repro the crackle but looking at the default device info to see if it is somehow different for a crackle run vs a good run.

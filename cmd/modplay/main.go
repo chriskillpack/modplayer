@@ -12,7 +12,6 @@ import (
 
 	"github.com/chriskillpack/modplayer"
 	"github.com/chriskillpack/modplayer/cmd/internal/config"
-	"github.com/fatih/color"
 	"github.com/gordonklaus/portaudio"
 )
 
@@ -79,10 +78,15 @@ func main() {
 		}
 	}()
 
+	doddi, _ := portaudio.DefaultOutputDevice()
+	fmt.Printf("dod: %+v\n", doddi)
+
 	rvb, err := config.ReverbFromFlag(*flagReverb, *flagHz)
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// var ticker int
 
 	scratch := make([]int16, 10*1024)
 	streamCB := func(out []int16) {
@@ -91,7 +95,7 @@ func main() {
 		rvb.InputSamples(sc)
 		n := rvb.GetAudio(out)
 
-		if n == 0 {
+		if n == 0 || player.State().Row >= 6 {
 			player.Stop()
 		}
 	}
@@ -101,6 +105,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer stream.Close()
+	fmt.Printf("stream: %v\n", stream.Info())
 
 	stream.Start()
 	defer stream.Stop()
@@ -113,19 +118,8 @@ func main() {
 		stream.Stop()
 		portaudio.Terminate()
 
-		fmt.Print(showCursor)
 		os.Exit(0)
 	}()
-
-	// Hide the cursor
-	fmt.Print(hideCursor)
-
-	white := color.New(color.FgWhite).SprintFunc()
-	cyan := color.New(color.FgCyan).SprintfFunc()
-	magenta := color.New(color.FgMagenta).SprintfFunc()
-	yellow := color.New(color.FgYellow).SprintfFunc()
-	blue := color.New(color.FgHiBlue).SprintFunc()
-	green := color.New(color.FgGreen).SprintfFunc()
 
 	// Print out some player preceeding 4 rows, current row and upcoming 4 rows
 	// <title> row 1A/3F pat 0A/73 speed 6 bpm 125
@@ -148,71 +142,5 @@ func main() {
 			continue
 		}
 
-		if len(song.Title) > 0 {
-			fmt.Print(song.Title + " ")
-		}
-		fmt.Printf("%s %02X/3F %s %02X/%02X %s %02d %s %3d\n", blue("row"), state.Row, blue("pat"), state.Order, len(song.Orders), blue("speed"), player.Speed, blue("bpm"), player.Tempo)
-
-		// Print out some channel info
-		ncl := len(state.Channels) / 2
-		for i, ch := range state.Channels {
-			outs := fmt.Sprintf("%2d: ", i+1)
-
-			si := ch.Instrument
-			if si != -1 {
-				outs += song.Samples[si].Name
-			}
-			if len(outs) < 32 {
-				outs = fmt.Sprintf("%-32s", outs)
-			}
-			fmt.Print(outs)
-			if i&1 == 1 {
-				fmt.Println()
-			}
-		}
-		fmt.Println()
-
-		for i := -4; i <= 4; i++ {
-			nd := player.NoteDataFor(state.Order, state.Row+i)
-			if nd == nil {
-				fmt.Println()
-				continue
-			}
-
-			// If this is the currently playing row then highlight it
-			if i == 0 {
-				fmt.Print(">>> ")
-			} else {
-				fmt.Print("    ")
-			}
-
-			// Print out the first 4 channels of note data
-			for ni, n := range nd {
-				if ni < 4 {
-					fmt.Print(white(n.Note), " ", cyan("%2X", n.Instrument), " ")
-					if n.Volume != 0xFF {
-						fmt.Print(green("%02X", n.Volume))
-					} else {
-						fmt.Print(green(".."))
-					}
-					fmt.Print(" ", magenta("%02X", n.Effect), yellow("%02X", n.Param))
-
-					if ni < 3 {
-						fmt.Print("|")
-					}
-				} else if ni == 4 {
-					fmt.Print(" ...")
-					break
-				}
-			}
-			if i == 0 {
-				fmt.Print(" <<<")
-			}
-			fmt.Println()
-		}
-		fmt.Printf(escape+"%dF", 11+ncl) // move cursor to beginning of line 9 above
 	}
-
-	// Show the cursor
-	fmt.Print(showCursor)
 }

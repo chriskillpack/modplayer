@@ -14,6 +14,7 @@ import (
 	"github.com/chriskillpack/modplayer/cmd/internal/config"
 	"github.com/fatih/color"
 	"github.com/gordonklaus/portaudio"
+	"golang.org/x/term"
 )
 
 var (
@@ -30,6 +31,20 @@ const (
 	hideCursor = escape + "?25l"
 	showCursor = escape + "?25h"
 )
+
+func getTerminalDims() (int, int, bool) {
+	fd := int(os.Stdout.Fd())
+	if !term.IsTerminal(fd) {
+		return 0, 0, false
+	}
+
+	width, height, err := term.GetSize(fd)
+	if err != nil {
+		return 0, 0, false
+	}
+
+	return width, height, true
+}
 
 func main() {
 	log.SetFlags(0)
@@ -71,6 +86,13 @@ func main() {
 		player.SeekTo(*flagStartOrd, 0)
 	}
 	player.PlayOrderLimit = *flagLenOrd
+
+	// Get the terminal dimensions
+	tw, _, ok := getTerminalDims()
+	if !ok {
+		// If that failed, assume 80 characters wide
+		tw = 80
+	}
 
 	initErr := portaudio.Initialize()
 	defer func() {
@@ -186,9 +208,13 @@ func main() {
 				fmt.Print("    ")
 			}
 
-			// Print out the first 4 channels of note data
-			for ni, n := range nd {
-				if ni < 4 {
+			// Print out as many of the channels of note data that can fit
+			hcp := 4 // horiz cursor pos (because of the play row padding above)
+			for _, n := range nd {
+				// Current channel format is 'NNN II VV EEPP' = 14 characters
+				// wide, with optional 15th character | channel separator
+				// The -4 accounts for the width of the playing row marker " <<<"
+				if hcp+14 < tw-4 {
 					fmt.Print(white(n.Note), " ", cyan("%2X", n.Instrument), " ")
 					if n.Volume != 0xFF {
 						fmt.Print(green("%02X", n.Volume))
@@ -197,10 +223,15 @@ func main() {
 					}
 					fmt.Print(" ", magenta("%02X", n.Effect), yellow("%02X", n.Param))
 
-					if ni < 3 {
-						fmt.Print("|")
+					hcp += 14
+
+					// Can we fit another column on after this one?
+					// See above for explanation of -4
+					if hcp+1+14 < tw-4 {
+						fmt.Printf("|")
+						hcp += 1
 					}
-				} else if ni == 4 {
+				} else {
 					fmt.Print(" ...")
 					break
 				}

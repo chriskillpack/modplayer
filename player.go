@@ -27,6 +27,7 @@ const (
 	effectPortaToNote         = 0x3
 	effectVibrato             = 0x4
 	effectPortaToNoteVolSlide = 0x5
+	effectVibratoVolSlide     = 0x6
 	effectTremolo             = 0x7
 	effectSetPanPosition      = 0x8
 	effectSampleOffset        = 0x9
@@ -295,6 +296,8 @@ func (c *channel) portaToNote() {
 }
 
 func (c *channel) volumeSlide(param byte) {
+	// TODO - verify order of precedence for volume slide where both x and y
+	// parameters are set.
 	vol := c.volume
 	if (param >> 4) > 0 {
 		vol += int(param >> 4)
@@ -497,6 +500,14 @@ func (p *Player) channelTick(c *channel, ci, tick int) {
 		c.vibratoPhase = (c.vibratoPhase + c.vibratoSpeed) & 63
 	case effectPortaToNoteVolSlide:
 		c.portaToNote()
+		if p.Song.Type == SongTypeS3M {
+			c.volumeSlide(c.memVolSlide)
+		} else {
+			c.volumeSlide(c.param)
+		}
+	case effectVibratoVolSlide:
+		c.vibrato()
+		c.vibratoPhase = (c.vibratoPhase + c.vibratoSpeed) & 63
 		if p.Song.Type == SongTypeS3M {
 			c.volumeSlide(c.memVolSlide)
 		} else {
@@ -814,6 +825,14 @@ func (p *Player) sequenceTick() bool {
 				if p.Song.Type == SongTypeS3M && param > 0 {
 					channel.memVolSlide = param
 				}
+			case effectVibratoVolSlide:
+				// S3M supports memory, MOD does not
+				if p.Song.Type == SongTypeS3M && param > 0 {
+					channel.memVolSlide = param
+				}
+
+				// TODO - support waveform retrig
+				channel.vibrato()
 			case effectExtended:
 				switch param >> 4 {
 				case effectExtendedVibratoWaveform:

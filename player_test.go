@@ -588,7 +588,40 @@ func TestEffectMODPortamentoVolSlide(t *testing.T) {
 				}
 
 				if c.period != tc.Periods[i-speed*2] || c.volume != tc.Volumes[i-speed*2] {
-					t.Errorf("On tick %d, expected (period,volume) to be (%d,%d), but got (%d,%d)", i, tc.Periods[i-speed*2], tc.Volumes[i-speed*2], c.period, c.volume)
+					t.Errorf("On tick %d, expected (period,volume) to be (%d,%d), got (%d,%d)", i, tc.Periods[i-speed*2], tc.Volumes[i-speed*2], c.period, c.volume)
+				}
+			}
+		})
+	}
+}
+
+func TestEffectMODVibratoVolSlide(t *testing.T) {
+	cases := []struct {
+		Name        string
+		Notes       [][]string
+		Adjustments []int
+		Volumes     []int
+	}{
+		{"Volume slide down", [][]string{{"A-4  1 4A2"}, {"... .. 601"}}, []int{-4, -4, -2, 2, 3, 2}, []int{60, 59, 58, 57, 56, 55}},
+		{"Volume slide up", [][]string{{"A-4  1 C10"}, {"... .. 4A2"}, {"... .. 610"}}, []int{-4, -4, -2, 2, 3, 2}, []int{16, 17, 18, 19, 20, 21}},
+		{"No volume change", [][]string{{"A-4  1 4A2"}, {"... .. 600"}}, []int{-4, -4, -2, 2, 3, 2}, []int{60, 60, 60, 60, 60, 60}},
+	}
+	const speed = 6
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			plr := newPlayerWithMODTestPattern(tc.Notes, t)
+			plr.setSpeed(speed)
+
+			nrows := len(tc.Notes)
+			c := &plr.channels[0]
+			for i := -speed * (nrows - 1); i < speed; i++ {
+				plr.sequenceTick()
+				if i < 0 {
+					continue
+				}
+
+				if c.vibratoAdjust != tc.Adjustments[i] || c.volume != tc.Volumes[i] {
+					t.Errorf("On tick %d, expected (vibrato, volume) to be (%d,%d), got (%d,%d)", i+speed*(nrows-1), tc.Adjustments[i], tc.Volumes[i], c.vibratoAdjust, c.volume)
 				}
 			}
 		})
@@ -676,7 +709,11 @@ func TestEffectPortaVolSlide(t *testing.T) {
 		{"Porta and vol slide down", [][]string{{"A-4  1 .. ..."}, {"B-4  1 .. G01"}, {"... .. .. L01"}}, []int{4048, 4044, 4040, 4036, 4032, 4028}, []int{60, 59, 58, 57, 56, 55}},
 		{"Porta and vol slide up", [][]string{{"A-4  1 10 ..."}, {"B-4  1 10 G01"}, {"... .. .. L10"}}, []int{4048, 4044, 4040, 4036, 4032, 4028}, []int{10, 11, 12, 13, 14, 15}},
 		{"Memory", [][]string{{"A-4  1 10 ..."}, {"B-4  1 10 G01"}, {"... .. .. L10"}, {"... .. .. L00"}}, []int{4028, 4024, 4020, 4016, 4012, 4008}, []int{15, 16, 17, 18, 19, 20}},
-		// TODO - test that there are no fine volume slides
+
+		{"No fine vol slide up", [][]string{{"A-4  1 10 ..."}, {"B-4  1 10 G01"}, {"... .. .. L1F"}}, []int{4048, 4044, 4040, 4036, 4032, 4028}, []int{10, 11, 12, 13, 14, 15}},
+		// In test below on a normal volume slide the parameter F1 would be a fine slow bown by 1 unit. This test is really documenting that the up parameter takes
+		// precedence over the down parameter, and increments volume on all ticks but T0.
+		{"No fine vol slide down", [][]string{{"A-4  1 10 ..."}, {"B-4  1 10 G01"}, {"... .. .. LF1"}}, []int{4048, 4044, 4040, 4036, 4032, 4028}, []int{10, 25, 40, 55, 64, 64}},
 	}
 	const speed = 6
 	for _, tc := range cases {
@@ -736,6 +773,45 @@ func TestEffectVibrato(t *testing.T) {
 	}
 }
 
+func TestEffectVibratoVolSlide(t *testing.T) {
+	cases := []struct {
+		Name        string
+		Notes       [][]string
+		Adjustments []int
+		Volumes     []int
+	}{
+		{"Volume slide down", [][]string{{"A-4  1 .. H2A"}, {"... .. .. K01"}}, []int{16, 16, 18, 19, 19, 19}, []int{60, 59, 58, 57, 56, 55}},
+		{"Volume slide up", [][]string{{"A-4  1 10 H2A"}, {"... .. .. K10"}}, []int{16, 16, 18, 19, 19, 19}, []int{10, 11, 12, 13, 14, 15}},
+		{"Volume slide up with ramp down", [][]string{{"... .. .. S31"}, {"A-4  1 10 H2A"}, {"... .. .. K10"}}, []int{-14, -14, -13, -11, -10, -9}, []int{10, 11, 12, 13, 14, 15}},
+		{"Memory", [][]string{{"A-4  1 .. H2A"}, {"... .. .. K01"}, {"... .. .. K00"}}, []int{18, 18, 16, 14, 11, 7}, []int{55, 54, 53, 52, 51, 50}},
+
+		{"No fine vol slide up", [][]string{{"A-4  1 10 H2A"}, {"... .. .. K1F"}}, []int{16, 16, 18, 19, 19, 19}, []int{10, 11, 12, 13, 14, 15}},
+		// In test below on a normal volume slide the parameter F1 would be a fine slow bown by 1 unit. This test is really documenting that the up parameter takes
+		// precedence over the down parameter, and increments volume on all ticks but T0.
+		{"No fine vol slide down", [][]string{{"A-4  1 10 H2A"}, {"... .. .. KF1"}}, []int{16, 16, 18, 19, 19, 19}, []int{10, 25, 40, 55, 64, 64}},
+	}
+
+	const speed = 6
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			plr := newPlayerWithTestPattern(tc.Notes, t)
+			plr.setSpeed(speed)
+
+			c := &plr.channels[0]
+			nrows := len(tc.Notes)
+			for i := -speed * (nrows - 1); i < speed; i++ {
+				plr.sequenceTick()
+				if i < 0 {
+					continue
+				}
+				if c.vibratoAdjust != tc.Adjustments[i] || c.volume != tc.Volumes[i] {
+					t.Errorf("On tick %d, expected (vibrato, volume) to be (%d,%d), got (%d,%d)", i+speed*(nrows-1), tc.Adjustments[i], tc.Volumes[i], c.vibratoAdjust, c.volume)
+				}
+			}
+		})
+	}
+}
+
 func TestEffectTremolo(t *testing.T) {
 	cases := []struct {
 		Name        string
@@ -762,7 +838,7 @@ func TestEffectTremolo(t *testing.T) {
 			for i := 0; i < speed*nrows; i++ {
 				plr.sequenceTick()
 				if i >= speed && c.tremoloAdjust != tc.Adjustments[i-speed] {
-					t.Errorf("On tick %d expected tremolo adjustment %d, got %d", i, tc.Adjustments[i-speed], c.vibratoAdjust)
+					t.Errorf("On tick %d expected tremolo adjustment %d, got %d", i, tc.Adjustments[i-speed], c.tremoloAdjust)
 				}
 			}
 		})

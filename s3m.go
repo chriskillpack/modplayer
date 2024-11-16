@@ -17,6 +17,7 @@ const (
 	s3mfx_PortamentoUp       = 0x6  // 'F'
 	s3mfx_TonePortamento     = 0x7  // 'G'
 	s3mfx_Vibrato            = 0x8  // 'H'
+	s3mfx_VibratoVolSlide    = 0xB  // 'K'
 	s3mfx_PortaVolSlide      = 0xC  // 'L'
 	s3mfx_SampleOffset       = 0xF  // 'O'
 	s3mfx_RetrigNoteVolSlide = 0x11 // 'Q'
@@ -352,6 +353,8 @@ func convertS3MEffect(efc, parm byte, _ptn, _row, _chn int) (effect byte, param 
 		effect = effectPortaToNote
 	case s3mfx_Vibrato:
 		effect = effectVibrato
+	case s3mfx_VibratoVolSlide:
+		effect = effectVibratoVolSlide
 	case s3mfx_PortaVolSlide:
 		effect = effectPortaToNoteVolSlide
 	case s3mfx_SampleOffset:

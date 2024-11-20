@@ -736,6 +736,35 @@ func TestEffectPortaVolSlide(t *testing.T) {
 	}
 }
 
+func TestEffectSampleOffset(t *testing.T) {
+	cases := []struct {
+		Name                   string
+		Notes                  [][]string
+		ExpectedSamplePosition uint
+		ExpectedSampleIdx      int
+	}{
+		{"Change sample position", [][]string{{"A-4  1 .. O03"}}, (0x3 << 24) + 0x8b7454, 0},
+		{"Overshoot stops note", [][]string{{"A-4 .. .. O80"}}, 0x80 << 24, -1},
+		{"Next note unaffected", [][]string{{"... .. .. O10"}, {"A-4  1 .. ..."}}, 0, 0},
+		{"Active note unaffected", [][]string{{"A-4  1 .. ..."}, {"... .. .. O10"}}, 0, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			plr := newPlayerWithTestPattern(tc.Notes, t)
+
+			c := &plr.channels[0]
+			nrows := len(tc.Notes)
+			for i := 0; i < nrows; i++ {
+				plr.GenerateAudio(mixBuffer[0 : (2*plr.samplesPerTick)*2])
+			}
+
+			if c.samplePosition != uint(tc.ExpectedSamplePosition) || c.sample != int(tc.ExpectedSampleIdx) {
+				t.Errorf("Expected (sample position,sample index) to be (%X,%d), got (%X,%d)", tc.ExpectedSamplePosition, tc.ExpectedSampleIdx, c.samplePosition, c.sample)
+			}
+		})
+	}
+}
+
 func TestEffectVibrato(t *testing.T) {
 	cases := []struct {
 		Name        string

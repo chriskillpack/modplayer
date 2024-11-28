@@ -63,6 +63,16 @@ Pattern 0 (x00)
 [...]
 ```
 
+# Development
+
+You will need Go 1.21 or later. You will also need to create a `go.work` file:
+
+```bash
+go work init
+go work use .
+go work use ./cmd/mod{play,wav,dump}
+```
+
 # Testing
 
 Testing a music player is a little tricky because the output is audio data. There are unit tests for the note trigger logic, integrations tests which compare the player against golden output, and manual listening tests where I compare output to other players.

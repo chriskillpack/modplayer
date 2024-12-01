@@ -1,4 +1,4 @@
-module github.com/chriskillpack/modplayer/cmd/modwav
+module github.com/chriskillpack/modplayer/cmd/moddump
 
 go 1.21
 

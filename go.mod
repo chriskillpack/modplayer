@@ -1,6 +1,6 @@
 module github.com/chriskillpack/modplayer
 
-go 1.21
+go 1.25
 
 require github.com/huandu/go-clone/generic v1.7.2
 

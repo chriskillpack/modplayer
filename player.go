@@ -354,10 +354,8 @@ func (p *Player) IsPlaying() bool {
 
 // State returns the current state of the player (song position, channel state, etc.)
 func (p *Player) State() PlayerState {
-	rc := p.row
-	if rc < 0 {
-		rc = 0
-	}
+	rc := max(p.row, 0)
+
 	state := PlayerState{Order: p.order, Pattern: int(p.Song.Orders[p.order]), Row: rc}
 	state.Notes = make([]ChannelNoteData, p.Channels)
 	state.Channels = make([]ChannelState, p.Channels)
@@ -422,7 +420,7 @@ func (p *Player) NoteDataFor(order, row int) []ChannelNoteData {
 
 	pattern := p.Orders[order]
 	rowDataIdx := row * p.Song.Channels
-	for i := 0; i < p.Channels; i++ {
+	for i := range p.Channels {
 		patnote := &p.Song.patterns[pattern][rowDataIdx]
 
 		note := &nd[i]
@@ -450,7 +448,7 @@ func (p *Player) reset() {
 	p.row = -1
 	p.tickSamplePos = p.samplesPerTick
 
-	for i := 0; i < p.Song.Channels; i++ {
+	for i := range p.Song.Channels {
 		channel := &p.channels[i]
 		channel.sample = -1
 		channel.sampleToPlay = -1
@@ -602,7 +600,7 @@ func (p *Player) sequenceTick() bool {
 
 		loopChannel := -1 // Which channel index has an active loop, -1=no channel
 
-		for i := 0; i < p.Song.Channels; i++ {
+		for i := range p.Song.Channels {
 			channel := &p.channels[i]
 
 			channel.effectCounter = 0
@@ -932,7 +930,7 @@ func (p *Player) sequenceTick() bool {
 		}
 	} else {
 		// channel tick
-		for i := 0; i < p.Song.Channels; i++ {
+		for i := range p.Song.Channels {
 			p.channelTick(&p.channels[i], i, p.tick)
 		}
 	}
@@ -1003,11 +1001,7 @@ func (p *Player) mixChannels(nSamples, offset int) {
 
 		for cur < end {
 			// Compute the position in the sample by end
-			epos := pos + uint((end-cur)/2)*dr
-			// If the sample ends before the end of this loop iteration only run to that
-			if epos >= sampEnd {
-				epos = sampEnd
-			}
+			epos := min(pos+uint((end-cur)/2)*dr, sampEnd)
 
 			// lvol rvol | case
 			//   0    0  |  skip, nothing to mix in. already handled above
@@ -1088,10 +1082,7 @@ func (p *Player) GenerateAudio(out []int16) int {
 			p.tickSamplePos = 0
 		}
 
-		remain := p.samplesPerTick - p.tickSamplePos
-		if remain > count {
-			remain = count
-		}
+		remain := min(p.samplesPerTick-p.tickSamplePos, count)
 		p.mixChannels(remain, offset)
 
 		p.tickSamplePos += remain
@@ -1121,10 +1112,7 @@ func (p *Player) downsample(out []int16, generated int) {
 // used resulting in invalid offsets. This function protects against that
 // issue but it would be ideal to eliminate the race condition.
 func (p *Player) rowDataIndex() int {
-	rc := p.row
-	if rc < 0 {
-		rc = 0
-	}
+	rc := max(p.row, 0)
 
 	return rc * p.Song.Channels
 }
@@ -1229,7 +1217,7 @@ func retrigVolume(mode, vol int) int {
 	return clamp(outvol, minVolume, maxVolume)
 }
 
-func dumpf(format string, a ...interface{}) {
+func dumpf(format string, a ...any) {
 	if dumpW == nil {
 		return
 	}
@@ -1259,7 +1247,7 @@ func clamp[T cmp.Ordered](x, l, h T) T {
 //lint:ignore U1000 Keep around for debugging
 func dumpChannel(tcur, ns int, out []int16) {
 	fmt.Printf("%d: ", tcur)
-	for i := 0; i < ns; i++ {
+	for i := range ns {
 		a := uint16(out[i*2+0])
 		a = (a&0xFF)<<8 | (a >> 8)
 		b := uint16(out[i*2+1])

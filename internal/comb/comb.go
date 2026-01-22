@@ -44,15 +44,12 @@ func (c *CombAdd) InputSamples(in []int16) int {
 	c.audio = append(c.audio, in...)
 	if len(c.audio) > c.delayOffset*2 {
 		ns := len(c.audio) - (c.delayOffset*2 + c.writePos)
-		for i := 0; i < ns; i++ {
+		for i := range ns {
 			c.audio[i+c.delayOffset*2+c.writePos] += int16(float32(c.audio[i+c.writePos]) * c.decay)
 		}
 		c.writePos += ns
 	}
-	rem := c.delayOffset*2 - len(c.audio)
-	if rem < 0 {
-		rem = 0
-	}
+	rem := max(c.delayOffset*2-len(c.audio), 0)
 	return rem
 }
 
@@ -99,10 +96,8 @@ func NewCombFixed(addSize int, decay float32, delayMs, sampleRate int) *CombFixe
 func (c *CombFixed) InputSamples(in []int16) int {
 	// How much can the buffer take?
 	free := c.bufferSize - c.n
-	n := len(in)
-	if n > free {
-		n = free
-	}
+	n := min(len(in), free)
+
 	// If the buffer is full then stop
 	if n == 0 {
 		return 0
@@ -154,8 +149,15 @@ func (c *CombFixed) applyReverb(ns, off int) {
 	if c.delayPos+ns >= c.bufferSize {
 		n1 := c.bufferSize - c.delayPos
 		n2 := ns - n1
-		for i := 0; i < n1; i++ {
-			c.audio[i+off] += int32(float32(c.audio[i+c.delayPos]) * c.decay)
+
+		// Pre-slice to avoid bounds checks in the loop
+		dst := c.audio[off : off+n1]
+		src := c.audio[c.delayPos : c.delayPos+n1]
+		if len(src) > 0 {
+			_ = dst[len(src)-1] // BCE hint: dst is at least as long as src
+			for i, s := range src {
+				dst[i] += int32(float32(s) * c.decay)
+			}
 		}
 
 		// First part done, setup second part
@@ -164,17 +166,20 @@ func (c *CombFixed) applyReverb(ns, off int) {
 		c.delayPos = 0
 	}
 
-	for i := 0; i < ns; i++ {
-		c.audio[i+off] += int32(float32(c.audio[i+c.delayPos]) * c.decay)
+	// Pre-slice to avoid bounds checks in the loop
+	dst := c.audio[off : off+ns]
+	src := c.audio[c.delayPos : c.delayPos+ns]
+	if len(src) > 0 {
+		_ = dst[len(src)-1] // BCE hint: dst is at least as long as src
+		for i, s := range src {
+			dst[i] += int32(float32(s) * c.decay)
+		}
 	}
 	c.delayPos += ns
 }
 
 func (c *CombFixed) GetAudio(out []int16) int {
-	n := len(out)
-	if n > c.n {
-		n = c.n
-	}
+	n := min(len(out), c.n)
 
 	// If the buffer is empty then stop
 	if n == 0 {

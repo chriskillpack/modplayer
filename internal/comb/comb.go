@@ -110,31 +110,40 @@ func (a *allpassFilter) process(input int32) int32 {
 // combFilter implements a feedback comb filter - the core building block
 // for reverb. It delays the input signal and feeds it back with a decay factor.
 type combFilter struct {
-	buffer     []int32
-	bufferSize int
-	writePos   int
-	decay      float32
+	buffer      []int32
+	bufferSize  int
+	writePos    int
+	decay       float32
+	damping     float32 // one-pole lowpass coefficient for HF rolloff
+	filterState int32   // state for the damping filter
 }
 
-// newCombFilter creates a new comb filter with the specified delay and decay.
+// newCombFilter creates a new comb filter with the specified delay, decay, and damping.
 // bufferSize is the delay in samples.
-func newCombFilter(delay int, decay float32) *combFilter {
+// damping controls high-frequency rolloff (0.0 = bright, 1.0 = very dark).
+func newCombFilter(delay int, decay, damping float32) *combFilter {
 	return &combFilter{
-		buffer:     make([]int32, delay),
-		bufferSize: delay,
-		writePos:   0,
-		decay:      decay,
+		buffer:      make([]int32, delay),
+		bufferSize:  delay,
+		writePos:    0,
+		decay:       decay,
+		damping:     damping,
+		filterState: 0,
 	}
 }
 
 // process applies the comb filter to a single sample.
-// Implements a feedback comb filter: buffer[pos] = input + decay*delayed
+// Implements a feedback comb filter with damping: buffer[pos] = input + decay*damped(delayed)
 func (c *combFilter) process(input int32) int32 {
 	// Read the delayed value from the current position
 	delayed := c.buffer[c.writePos]
 
-	// Write new value: input + feedback (decayed delayed signal)
-	c.buffer[c.writePos] = input + int32(float32(delayed)*c.decay)
+	// Apply one-pole lowpass filter for damping (simulates HF absorption in rooms)
+	// filterState = damping*filterState + (1-damping)*delayed
+	c.filterState = int32(float32(c.filterState)*c.damping + float32(delayed)*(1.0-c.damping))
+
+	// Write new value: input + feedback (decayed and damped delayed signal)
+	c.buffer[c.writePos] = input + int32(float32(c.filterState)*c.decay)
 
 	// Advance write position in circular buffer
 	c.writePos = (c.writePos + 1) % c.bufferSize
@@ -298,12 +307,14 @@ type StereoReverb struct {
 
 	// Configuration
 	roomSize float32 // scales the decay of comb filters
+	damping  float32 // high-frequency damping (0.0 = bright, 1.0 = dark)
 }
 
 // NewStereoReverb creates a new stereo reverb with 4 comb filters per channel.
 // addSize provides extra buffer space beyond the minimum required for delays.
 // roomSize ranges from 0.0-1.0 and controls the reverb tail length.
-func NewStereoReverb(addSize int, roomSize float32, sampleRate int) *StereoReverb {
+// damping ranges from 0.0-1.0 and controls high-frequency rolloff.
+func NewStereoReverb(addSize int, roomSize, damping float32, sampleRate int) *StereoReverb {
 	// Base delay times at 44.1kHz (in samples)
 	// Left and right use different patterns for stereo width
 	leftDelays := [4]int{1557, 1617, 1491, 1422}
@@ -319,18 +330,19 @@ func NewStereoReverb(addSize int, roomSize float32, sampleRate int) *StereoRever
 
 	s := &StereoReverb{
 		roomSize: roomSize,
+		damping:  damping,
 	}
 
 	// Initialize left channel combs
 	for i := range s.leftCombs {
 		delay := scaleDelay(leftDelays[i])
-		s.leftCombs[i] = newCombFilter(delay, decay)
+		s.leftCombs[i] = newCombFilter(delay, decay, damping)
 	}
 
 	// Initialize right channel combs
 	for i := range s.rightCombs {
 		delay := scaleDelay(rightDelays[i])
-		s.rightCombs[i] = newCombFilter(delay, decay)
+		s.rightCombs[i] = newCombFilter(delay, decay, damping)
 	}
 
 	// Allpass delays at 44.1kHz (in samples)

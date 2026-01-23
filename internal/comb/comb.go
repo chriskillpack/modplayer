@@ -308,13 +308,15 @@ type StereoReverb struct {
 	// Configuration
 	roomSize float32 // scales the decay of comb filters
 	damping  float32 // high-frequency damping (0.0 = bright, 1.0 = dark)
+	mix      float32 // wet/dry mix (0.0 = all dry, 1.0 = all wet)
 }
 
 // NewStereoReverb creates a new stereo reverb with 4 comb filters per channel.
 // addSize provides extra buffer space beyond the minimum required for delays.
 // roomSize ranges from 0.0-1.0 and controls the reverb tail length.
 // damping ranges from 0.0-1.0 and controls high-frequency rolloff.
-func NewStereoReverb(addSize int, roomSize, damping float32, sampleRate int) *StereoReverb {
+// mix ranges from 0.0-1.0 and controls wet/dry blend (0=dry, 1=wet).
+func NewStereoReverb(addSize int, roomSize, damping, mix float32, sampleRate int) *StereoReverb {
 	// Base delay times at 44.1kHz (in samples)
 	// Left and right use different patterns for stereo width
 	leftDelays := [4]int{1557, 1617, 1491, 1422}
@@ -331,6 +333,7 @@ func NewStereoReverb(addSize int, roomSize, damping float32, sampleRate int) *St
 	s := &StereoReverb{
 		roomSize: roomSize,
 		damping:  damping,
+		mix:      mix,
 	}
 
 	// Initialize left channel combs
@@ -385,37 +388,41 @@ func (s *StereoReverb) InputSamples(in []int16) int {
 	inPos := 0
 
 	for i := 0; i < numPairs; i++ {
-		// Deinterleave: extract left and right samples
-		left := int32(in[inPos])
-		right := int32(in[inPos+1])
+		// Deinterleave: extract left and right samples (dry signal)
+		leftDry := int32(in[inPos])
+		rightDry := int32(in[inPos+1])
 		inPos += 2
 
 		// Process left channel through 4 parallel combs and sum
 		leftSum := int32(0)
 		for j := range s.leftCombs {
-			leftSum += s.leftCombs[j].process(left)
+			leftSum += s.leftCombs[j].process(leftDry)
 		}
 
 		// Process right channel through 4 parallel combs and sum
 		rightSum := int32(0)
 		for j := range s.rightCombs {
-			rightSum += s.rightCombs[j].process(right)
+			rightSum += s.rightCombs[j].process(rightDry)
 		}
 
 		// Scale down to prevent overflow (8 combs total)
 		// Divide by 4 gives headroom while maintaining good signal level
-		leftOut := leftSum / 4
-		rightOut := rightSum / 4
+		leftWet := leftSum / 4
+		rightWet := rightSum / 4
 
 		// Pass through allpass filters for diffusion (left channel)
 		for j := range s.leftAllpass {
-			leftOut = s.leftAllpass[j].process(leftOut)
+			leftWet = s.leftAllpass[j].process(leftWet)
 		}
 
 		// Pass through allpass filters for diffusion (right channel)
 		for j := range s.rightAllpass {
-			rightOut = s.rightAllpass[j].process(rightOut)
+			rightWet = s.rightAllpass[j].process(rightWet)
 		}
+
+		// Blend dry and wet signals: output = (1-mix)*dry + mix*wet
+		leftOut := int32(float32(leftDry)*(1.0-s.mix) + float32(leftWet)*s.mix)
+		rightOut := int32(float32(rightDry)*(1.0-s.mix) + float32(rightWet)*s.mix)
 
 		// Write to ring buffer (interleaved)
 		s.audio[s.writePos] = leftOut

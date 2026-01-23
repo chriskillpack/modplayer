@@ -68,6 +68,45 @@ func (c *CombAdd) GetAudio(out []int16) int {
 	return wanted
 }
 
+// allpassFilter implements an allpass filter for diffusion in reverb.
+// Allpass filters delay the signal and scatter reflections without
+// changing the frequency content or amplitude.
+type allpassFilter struct {
+	buffer     []int32
+	bufferSize int
+	index      int
+	gain       float32
+}
+
+// newAllpass creates a new allpass filter with the specified delay in samples.
+func newAllpass(delay int) *allpassFilter {
+	return &allpassFilter{
+		buffer:     make([]int32, delay),
+		bufferSize: delay,
+		index:      0,
+		gain:       0.5, // Fixed gain for stability
+	}
+}
+
+// process applies the allpass filter to a single sample.
+// Classic allpass formula: output = -input + delayed + gain*output_delayed
+func (a *allpassFilter) process(input int32) int32 {
+	// Read the delayed value from the buffer
+	delayed := a.buffer[a.index]
+
+	// Compute output: -input + delayed_input + gain*delayed_output
+	// The delayed value in buffer already contains the feedback component
+	output := -input + delayed
+
+	// Write new value with feedback into the buffer
+	a.buffer[a.index] = input + int32(float32(delayed)*a.gain)
+
+	// Advance the circular buffer index
+	a.index = (a.index + 1) % a.bufferSize
+
+	return output
+}
+
 // CombFixed is a Comb filter than uses a fixed size of backing memory
 type CombFixed struct {
 	readPos, writePos     int

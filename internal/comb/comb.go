@@ -285,6 +285,10 @@ type StereoReverb struct {
 	leftCombs  [4]*combFilter
 	rightCombs [4]*combFilter
 
+	// Left and right channel allpass filters (2 per channel)
+	leftAllpass  [2]*allpassFilter
+	rightAllpass [2]*allpassFilter
+
 	// I/O ring buffer for processed audio
 	audio      []int32
 	bufferSize int
@@ -327,6 +331,21 @@ func NewStereoReverb(addSize int, roomSize float32, sampleRate int) *StereoRever
 	for i := range s.rightCombs {
 		delay := scaleDelay(rightDelays[i])
 		s.rightCombs[i] = newCombFilter(delay, decay)
+	}
+
+	// Allpass delays at 44.1kHz (in samples)
+	allpassDelays := [2]int{556, 441}
+
+	// Initialize left channel allpass filters
+	for i := range s.leftAllpass {
+		delay := scaleDelay(allpassDelays[i])
+		s.leftAllpass[i] = newAllpass(delay)
+	}
+
+	// Initialize right channel allpass filters
+	for i := range s.rightAllpass {
+		delay := scaleDelay(allpassDelays[i])
+		s.rightAllpass[i] = newAllpass(delay)
 	}
 
 	// Calculate I/O buffer size: largest delay + addSize, times 2 for stereo
@@ -375,6 +394,16 @@ func (s *StereoReverb) InputSamples(in []int16) int {
 		// Divide by 4 gives headroom while maintaining good signal level
 		leftOut := leftSum / 4
 		rightOut := rightSum / 4
+
+		// Pass through allpass filters for diffusion (left channel)
+		for j := range s.leftAllpass {
+			leftOut = s.leftAllpass[j].process(leftOut)
+		}
+
+		// Pass through allpass filters for diffusion (right channel)
+		for j := range s.rightAllpass {
+			rightOut = s.rightAllpass[j].process(rightOut)
+		}
 
 		// Write to ring buffer (interleaved)
 		s.audio[s.writePos] = leftOut

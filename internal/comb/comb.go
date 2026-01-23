@@ -107,6 +107,42 @@ func (a *allpassFilter) process(input int32) int32 {
 	return output
 }
 
+// combFilter implements a feedback comb filter - the core building block
+// for reverb. It delays the input signal and feeds it back with a decay factor.
+type combFilter struct {
+	buffer     []int32
+	bufferSize int
+	writePos   int
+	decay      float32
+}
+
+// newCombFilter creates a new comb filter with the specified delay and decay.
+// bufferSize is the delay in samples.
+func newCombFilter(delay int, decay float32) *combFilter {
+	return &combFilter{
+		buffer:     make([]int32, delay),
+		bufferSize: delay,
+		writePos:   0,
+		decay:      decay,
+	}
+}
+
+// process applies the comb filter to a single sample.
+// Implements a feedback comb filter: buffer[pos] = input + decay*delayed
+func (c *combFilter) process(input int32) int32 {
+	// Read the delayed value from the current position
+	delayed := c.buffer[c.writePos]
+
+	// Write new value: input + feedback (decayed delayed signal)
+	c.buffer[c.writePos] = input + int32(float32(delayed)*c.decay)
+
+	// Advance write position in circular buffer
+	c.writePos = (c.writePos + 1) % c.bufferSize
+
+	// Output is the delayed signal
+	return delayed
+}
+
 // CombFixed is a Comb filter than uses a fixed size of backing memory
 type CombFixed struct {
 	readPos, writePos     int

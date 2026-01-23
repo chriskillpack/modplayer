@@ -88,13 +88,13 @@ func ReverbFromFlag(reverb string, sampleRate int) (r comb.Reverber, err error) 
 	switch reverb {
 	case "light":
 		// Small room (bedroom/studio booth)
-		r = comb.NewStereoReverb(10*1024, 0.5, 0.5, 0.3, sampleRate)
+		r = comb.NewStereoReverb(10*1024, 0.5, 0.5, 0.15, sampleRate)
 	case "medium":
 		// Living room/small hall
-		r = comb.NewStereoReverb(10*1024, 0.7, 0.6, 0.5, sampleRate)
+		r = comb.NewStereoReverb(10*1024, 0.7, 0.6, 0.25, sampleRate)
 	case "hall":
 		// Concert hall
-		r = comb.NewStereoReverb(10*1024, 0.9, 0.7, 0.7, sampleRate)
+		r = comb.NewStereoReverb(10*1024, 0.9, 0.7, 0.4, sampleRate)
 	case "none":
 		// No reverb (passthrough)
 		r = NewPassThrough(10 * 1024)

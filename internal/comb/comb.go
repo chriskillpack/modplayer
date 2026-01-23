@@ -278,6 +278,146 @@ func (c *CombFixed) GetAudio(out []int16) int {
 	return n
 }
 
+// StereoReverb implements a high-quality Schroeder reverb with multiple
+// parallel comb filters per channel for denser, more natural-sounding reverb.
+type StereoReverb struct {
+	// Left and right channel comb filters (4 per channel)
+	leftCombs  [4]*combFilter
+	rightCombs [4]*combFilter
+
+	// I/O ring buffer for processed audio
+	audio      []int32
+	bufferSize int
+	readPos    int
+	writePos   int
+	n          int // samples currently stored
+
+	// Configuration
+	roomSize float32 // scales the decay of comb filters
+}
+
+// NewStereoReverb creates a new stereo reverb with 4 comb filters per channel.
+// addSize provides extra buffer space beyond the minimum required for delays.
+// roomSize ranges from 0.0-1.0 and controls the reverb tail length.
+func NewStereoReverb(addSize int, roomSize float32, sampleRate int) *StereoReverb {
+	// Base delay times at 44.1kHz (in samples)
+	// Left and right use different patterns for stereo width
+	leftDelays := [4]int{1557, 1617, 1491, 1422}
+	rightDelays := [4]int{1617, 1557, 1422, 1491}
+
+	// Scale delays based on actual sample rate
+	scaleDelay := func(baseDelay int) int {
+		return (baseDelay * sampleRate) / 44100
+	}
+
+	// Calculate decay from roomSize: range 0.84 (small room) to 0.98 (large hall)
+	decay := 0.84 + (roomSize * 0.14)
+
+	s := &StereoReverb{
+		roomSize: roomSize,
+	}
+
+	// Initialize left channel combs
+	for i := range s.leftCombs {
+		delay := scaleDelay(leftDelays[i])
+		s.leftCombs[i] = newCombFilter(delay, decay)
+	}
+
+	// Initialize right channel combs
+	for i := range s.rightCombs {
+		delay := scaleDelay(rightDelays[i])
+		s.rightCombs[i] = newCombFilter(delay, decay)
+	}
+
+	// Calculate I/O buffer size: largest delay + addSize, times 2 for stereo
+	maxDelay := scaleDelay(1617) // largest delay time
+	s.bufferSize = (maxDelay + addSize) * 2
+	s.audio = make([]int32, s.bufferSize)
+
+	return s
+}
+
+// InputSamples feeds stereo interleaved samples into the reverb.
+// Returns the number of samples consumed.
+func (s *StereoReverb) InputSamples(in []int16) int {
+	// How much can the buffer take?
+	free := s.bufferSize - s.n
+	n := min(len(in), free)
+
+	// If buffer is full, stop
+	if n == 0 {
+		return 0
+	}
+
+	// Process samples in pairs (L/R)
+	numPairs := n / 2
+	inPos := 0
+
+	for i := 0; i < numPairs; i++ {
+		// Deinterleave: extract left and right samples
+		left := int32(in[inPos])
+		right := int32(in[inPos+1])
+		inPos += 2
+
+		// Process left channel through 4 parallel combs and sum
+		leftSum := int32(0)
+		for j := range s.leftCombs {
+			leftSum += s.leftCombs[j].process(left)
+		}
+
+		// Process right channel through 4 parallel combs and sum
+		rightSum := int32(0)
+		for j := range s.rightCombs {
+			rightSum += s.rightCombs[j].process(right)
+		}
+
+		// Scale down to prevent overflow (8 combs total)
+		// Divide by 4 gives headroom while maintaining good signal level
+		leftOut := leftSum / 4
+		rightOut := rightSum / 4
+
+		// Write to ring buffer (interleaved)
+		s.audio[s.writePos] = leftOut
+		s.audio[s.writePos+1] = rightOut
+
+		s.writePos += 2
+		if s.writePos >= s.bufferSize {
+			s.writePos = 0
+		}
+	}
+
+	samplesConsumed := numPairs * 2
+	s.n += samplesConsumed
+
+	return samplesConsumed
+}
+
+// GetAudio retrieves processed audio with reverb applied.
+// Returns the number of samples written to out.
+func (s *StereoReverb) GetAudio(out []int16) int {
+	n := min(len(out), s.n)
+
+	// If buffer is empty, stop
+	if n == 0 {
+		return 0
+	}
+
+	// Handle circular buffer wraparound
+	if s.readPos+n > s.bufferSize {
+		n1 := s.bufferSize - s.readPos
+		n2 := n - n1
+		copyDownsample(out[:n1], s.audio[s.readPos:s.readPos+n1])
+		copyDownsample(out[n1:n], s.audio[:n2])
+		s.readPos = n2
+	} else {
+		copyDownsample(out[:n], s.audio[s.readPos:s.readPos+n])
+		s.readPos += n
+	}
+
+	s.n -= n
+	return n
+}
+
 // Copies a slice of audio data and "upsamples" it to 32bit (just a cast, no
 // value changes).
 func copyUpsample(dst []int32, src []int16) {

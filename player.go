@@ -355,10 +355,7 @@ func (p *Player) IsPlaying() bool {
 
 // State returns the current state of the player (song position, channel state, etc.)
 func (p *Player) State() PlayerState {
-	rc := p.row
-	if rc < 0 {
-		rc = 0
-	}
+	rc := max(p.row, 0)
 	state := PlayerState{Order: p.order, Pattern: int(p.Song.Orders[p.order]), Row: rc}
 	state.Notes = make([]ChannelNoteData, p.Channels)
 	state.Channels = make([]ChannelState, p.Channels)
@@ -486,7 +483,7 @@ func (p *Player) setSpeed(speed int) {
 	p.tick = p.Speed - 1 // TODO - is setting the tick like this appropriate?
 }
 
-func (p *Player) channelTick(c *channel, ci, tick int) {
+func (p *Player) channelTick(c *channel, _ /* ci */, _ /* tick */ int) {
 	c.effectCounter++
 
 	switch c.effect {
@@ -1004,11 +1001,7 @@ func (p *Player) mixChannels(nSamples, offset int) {
 
 		for cur < end {
 			// Compute the position in the sample by end
-			epos := pos + uint((end-cur)/2)*dr
-			// If the sample ends before the end of this loop iteration only run to that
-			if epos >= sampEnd {
-				epos = sampEnd
-			}
+			epos := min(pos+uint((end-cur)/2)*dr, sampEnd)
 
 			// lvol rvol | case
 			//   0    0  |  skip, nothing to mix in. already handled above
@@ -1095,10 +1088,7 @@ func (p *Player) GenerateAudio(out []int16) int {
 			p.tickSamplePos = 0
 		}
 
-		remain := p.samplesPerTick - p.tickSamplePos
-		if remain > count {
-			remain = count
-		}
+		remain := min(p.samplesPerTick-p.tickSamplePos, count)
 		p.mixChannels(remain, offset)
 
 		p.tickSamplePos += remain
@@ -1128,10 +1118,7 @@ func (p *Player) downsample(out []int16, generated int) {
 // used resulting in invalid offsets. This function protects against that
 // issue but it would be ideal to eliminate the race condition.
 func (p *Player) rowDataIndex() int {
-	rc := p.row
-	if rc < 0 {
-		rc = 0
-	}
+	rc := max(p.row, 0)
 
 	return rc * p.Song.Channels
 }
@@ -1236,7 +1223,7 @@ func retrigVolume(mode, vol int) int {
 	return clamp(outvol, minVolume, maxVolume)
 }
 
-func dumpf(format string, a ...interface{}) {
+func dumpf(format string, a ...any) {
 	if dumpW == nil {
 		return
 	}

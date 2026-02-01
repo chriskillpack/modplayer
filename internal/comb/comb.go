@@ -311,6 +311,8 @@ type StereoReverb struct {
 	mix      float32 // wet/dry mix (0.0 = all dry, 1.0 = all wet)
 }
 
+var _ Reverber = &StereoReverb{}
+
 // NewStereoReverb creates a new stereo reverb with 4 comb filters per channel.
 // addSize provides extra buffer space beyond the minimum required for delays.
 // roomSize ranges from 0.0-1.0 and controls the reverb tail length.

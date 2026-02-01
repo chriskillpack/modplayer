@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"unsafe"
 )
 
 const (
@@ -1021,9 +1022,12 @@ func (p *Player) mixChannels(nSamples, offset int) {
 					vol = rvol
 					cur++
 				}
+				// Use unsafe pointer arithmetic to eliminate bounds checks
+				dataPtr := unsafe.Pointer(unsafe.SliceData(sample.Data))
+				mixPtr := unsafe.Pointer(unsafe.SliceData(p.mixbuffer))
 				for pos < epos {
-					sd := int(sample.Data[pos>>16])
-					p.mixbuffer[cur] += sd * vol
+					sd := int(*(*int8)(unsafe.Pointer(uintptr(dataPtr) + uintptr(pos>>16))))
+					*(*int)(unsafe.Pointer(uintptr(mixPtr) + uintptr(cur)*8)) += sd * vol
 
 					pos += dr
 					cur += 2
@@ -1033,12 +1037,15 @@ func (p *Player) mixChannels(nSamples, offset int) {
 					cur--
 				}
 			} else {
+				// Use unsafe pointer arithmetic to eliminate bounds checks
+				dataPtr := unsafe.Pointer(unsafe.SliceData(sample.Data))
+				mixPtr := unsafe.Pointer(unsafe.SliceData(p.mixbuffer))
 				for pos < epos {
 					// WARNING: no clamping when mixing into mixbuffer. Clamping will be applied when the final audio is returned
 					// to the caller.
-					sd := int(sample.Data[pos>>16])
-					p.mixbuffer[cur+0] += sd * lvol
-					p.mixbuffer[cur+1] += sd * rvol
+					sd := int(*(*int8)(unsafe.Pointer(uintptr(dataPtr) + uintptr(pos>>16))))
+					*(*int)(unsafe.Pointer(uintptr(mixPtr) + uintptr(cur+0)*8)) += sd * lvol
+					*(*int)(unsafe.Pointer(uintptr(mixPtr) + uintptr(cur+1)*8)) += sd * rvol
 
 					pos += dr
 					cur += 2

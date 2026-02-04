@@ -31,6 +31,23 @@ const (
 	showCursor = escape + "?25h"
 )
 
+var (
+	white   = color.New(color.FgWhite).SprintFunc()
+	cyan    = color.New(color.FgCyan).SprintfFunc()
+	magenta = color.New(color.FgMagenta).SprintfFunc()
+	yellow  = color.New(color.FgYellow).SprintfFunc()
+	blue    = color.New(color.FgHiBlue).SprintFunc()
+	green   = color.New(color.FgGreen).SprintfFunc()
+)
+
+type displayMode int
+
+const (
+	displayModeWide = iota
+	displayModeNarrow
+	displayModeCompact
+)
+
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("modplay: ")
@@ -120,12 +137,15 @@ func main() {
 	// Hide the cursor
 	fmt.Print(hideCursor)
 
-	white := color.New(color.FgWhite).SprintFunc()
-	cyan := color.New(color.FgCyan).SprintfFunc()
-	magenta := color.New(color.FgMagenta).SprintfFunc()
-	yellow := color.New(color.FgYellow).SprintfFunc()
-	blue := color.New(color.FgHiBlue).SprintFunc()
-	green := color.New(color.FgGreen).SprintfFunc()
+	var mode displayMode
+	if song.Channels <= 4 {
+		mode = displayModeWide
+	} else if song.Channels <= 8 {
+		mode = displayModeNarrow
+	} else {
+		mode = displayModeCompact
+	}
+	mode = displayModeNarrow
 
 	// Print out some player preceeding 4 rows, current row and upcoming 4 rows
 	// <title> row 1A/3F pat 0A/73 speed 6 bpm 125
@@ -191,21 +211,16 @@ func main() {
 
 			// Print out the first 4 channels of note data
 			for ni, n := range nd {
-				if ni < 4 {
-					fmt.Print(white(n.Note), " ", cyan("%2X", n.Instrument), " ")
-					if n.Volume != 0xFF {
-						fmt.Print(green("%02X", n.Volume))
-					} else {
-						fmt.Print(green(".."))
+				switch mode {
+				case displayModeWide:
+					noteDisplayWide(ni, n)
+					if ni == 4 {
+						break
 					}
-					fmt.Print(" ", magenta("%02X", n.Effect), yellow("%02X", n.Param))
-
-					if ni < 3 {
-						fmt.Print("|")
-					}
-				} else if ni == 4 {
-					fmt.Print(" ...")
-					break
+				case displayModeNarrow:
+					noteDisplayNarrow(ni, n)
+				case displayModeCompact:
+					noteDisplayCompact(ni, n)
 				}
 			}
 			if i == 0 {
@@ -218,4 +233,38 @@ func main() {
 
 	// Show the cursor
 	fmt.Print(showCursor)
+}
+
+func noteDisplayWide(ni int, n modplayer.ChannelNoteData) {
+	if ni < 4 {
+		fmt.Print(white(n.Note), " ", cyan("%2X", n.Instrument), " ")
+		if n.Volume != 0xFF {
+			fmt.Print(green("%02X", n.Volume))
+		} else {
+			fmt.Print(green(".."))
+		}
+		fmt.Print(" ", magenta("%02X", n.Effect), yellow("%02X", n.Param))
+
+		if ni < 3 {
+			fmt.Print("|")
+		}
+	} else if ni == 4 {
+		fmt.Print(" ...")
+	}
+
+}
+
+func noteDisplayNarrow(ni int, n modplayer.ChannelNoteData) {
+	if ni < 8 {
+		fmt.Print(white(n.Note), " ", magenta("%02X", n.Effect), yellow("%02X", n.Param))
+		if ni < 7 {
+			fmt.Print("|")
+		}
+	} else if ni == 8 {
+		fmt.Print(" ...")
+	}
+}
+
+func noteDisplayCompact(ni int, n modplayer.ChannelNoteData) {
+
 }

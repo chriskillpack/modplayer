@@ -156,16 +156,19 @@ func main() {
 		// Print out some channel info
 		ncl := len(state.Channels) / 2
 		for i, ch := range state.Channels {
-			outs := fmt.Sprintf("%2d: ", i+1)
+			tc := ' '
+			if state.Order == ch.TrigOrder && state.Row == ch.TrigRow {
+				tc = '■'
+			} else if ch.Instrument != -1 {
+				tc = '□'
+			}
+			outs := fmt.Sprintf("%2d%c ", i+1, tc)
 
 			si := ch.Instrument
 			if si != -1 {
 				outs += song.Samples[si].Name
 			}
-			if len(outs) < 32 {
-				outs = fmt.Sprintf("%-32s", outs)
-			}
-			fmt.Print(outs)
+			fmt.Printf("%-32s", outs)
 			if i&1 == 1 {
 				fmt.Println()
 			}

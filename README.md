@@ -37,6 +37,16 @@ $ go run ./cmd/modplay awesome.mod
 
 ![Screenshot of modplay](/docs/modplay.png)
 
+Keyboard
+
+| Key | Description |
+|-----|-------------|
+| Ctrl-C, Esc | Quit the song |
+| Space | Pause/Unpause the song |
+| Left Arrow, Right Arrow | Move the selected channel |
+| q | Mute/unmute the selected channel |
+| s | Solo the selected channel (all other channels are muted). Press again to unmute all channels. |
+
 ### `moddump`
 
 Prints the interpreted and raw contents of MOD and S3M files to stdout. The output includes the pattern data and instrument definitions. A really useful tool when debugging.

@@ -50,7 +50,15 @@ func play(player *modplayer.Player, reverb comb.Reverber) {
 	scratch := make([]int16, 10*1024)
 	streamCB := func(out []int16) {
 		sc := scratch[:len(out)]
-		player.GenerateAudio(sc)
+
+		if player.IsPlaying() {
+			player.GenerateAudio(sc)
+		} else {
+			// Clear out the audio buffer to prevent unpleasant loops when
+			// paused (we are still pushing PCM data to the audio device).
+			clear(sc)
+		}
+
 		reverb.InputSamples(sc)
 		n := reverb.GetAudio(out)
 
@@ -73,13 +81,10 @@ func play(player *modplayer.Player, reverb comb.Reverber) {
 		uiw = io.Discard
 	}
 
+	exiting := false
 	stopFn := func() {
 		player.Stop()
-		stream.Stop()
-		portaudio.Terminate()
-
-		fmt.Fprintf(uiw, showCursor)
-		os.Exit(0)
+		exiting = true
 	}
 
 	sigch := make(chan os.Signal, 5)
@@ -89,6 +94,7 @@ func play(player *modplayer.Player, reverb comb.Reverber) {
 			sig := <-sigch
 			if sig == syscall.SIGINT {
 				stopFn()
+				return
 			}
 		}
 	}()
@@ -128,10 +134,17 @@ func play(player *modplayer.Player, reverb comb.Reverber) {
 			switch key.Code {
 			case keys.CtrlC, keys.Escape:
 				stopFn()
+				return true, nil
 			case keys.Left:
 				uiSelectedChannel = max(uiSelectedChannel-1, 0)
 			case keys.Right:
 				uiSelectedChannel = min(uiSelectedChannel+1, player.Song.Channels-1)
+			case keys.Space:
+				if player.IsPlaying() {
+					player.Stop()
+				} else {
+					player.Start()
+				}
 			case keys.RuneKey:
 				if key.Runes[0] == 'q' {
 					player.Mute = player.Mute ^ (1 << uiSelectedChannel)
@@ -151,7 +164,7 @@ func play(player *modplayer.Player, reverb comb.Reverber) {
 	}()
 
 	var lastState modplayer.PlayerState
-	for player.IsPlaying() {
+	for !exiting {
 		state := player.State()
 
 		if lastState.Notes != nil && lastState.Order == state.Order && lastState.Row == state.Row {
@@ -231,7 +244,10 @@ func play(player *modplayer.Player, reverb comb.Reverber) {
 			}
 			fmt.Fprintln(uiw)
 		}
-		fmt.Fprintf(uiw, escape+"%dF", 13+ncl) // move cursor to beginning of line 9 above
+		if !exiting {
+			// We leave the UI on the screen if we are exiting
+			fmt.Fprintf(uiw, escape+"%dF", 13+ncl) // move cursor to beginning of line 9 above
+		}
 	}
 
 	// Show the cursor

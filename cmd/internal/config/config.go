@@ -85,27 +85,21 @@ func (r *ReverbPassThrough) GetAudio(out []int16) int {
 // ReverbFromFlag initializes an instance of comb.Reverber according to the
 // command line flag value.
 func ReverbFromFlag(reverb string, sampleRate int) (r comb.Reverber, err error) {
-	rf := float32(0.2)
-	rd := 150
 	switch reverb {
-	case "medium":
-		rf = 0.3
-		rd = 250
-	case "silly":
-		rf = 0.5
-		rd = 2500
-	case "none":
-		rd = 0.0
-		rf = 0
 	case "light":
+		// Small room (bedroom/studio booth)
+		r = comb.NewStereoReverb(10*1024, 0.5, 0.5, 0.15, sampleRate)
+	case "medium":
+		// Living room/small hall
+		r = comb.NewStereoReverb(10*1024, 0.7, 0.6, 0.25, sampleRate)
+	case "hall":
+		// Concert hall
+		r = comb.NewStereoReverb(10*1024, 0.9, 0.7, 0.4, sampleRate)
+	case "none":
+		// No reverb (passthrough)
+		r = NewPassThrough(10 * 1024)
 	default:
 		err = fmt.Errorf("unrecognized reverb setting %q", reverb)
-	}
-
-	if rf == 0 {
-		r = NewPassThrough(10 * 1024)
-	} else {
-		r = comb.NewCombFixed(10*1024, rf, rd, sampleRate)
 	}
 
 	return r, err

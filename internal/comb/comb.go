@@ -1,5 +1,19 @@
 package comb
 
+// Fixed-point arithmetic constants. Coefficients in the range [0.0, 1.0] are
+// stored as int32 values scaled by 1<<fixedShift. Multiplications are done in
+// int64 to avoid overflow, then right-shifted back.
+const fixedShift = 15
+
+func toFixed(f float32) int32 {
+	return int32(f * (1 << fixedShift))
+}
+
+// fixMul multiplies an int32 sample by a Q15 fixed-point coefficient.
+func fixMul(x, coeff int32) int32 {
+	return int32((int64(x) * int64(coeff)) >> fixedShift)
+}
+
 // Reverber applies reverb to audio
 type Reverber interface {
 	// InputSamples feeds the reverber with new sample data.
@@ -44,15 +58,12 @@ func (c *CombAdd) InputSamples(in []int16) int {
 	c.audio = append(c.audio, in...)
 	if len(c.audio) > c.delayOffset*2 {
 		ns := len(c.audio) - (c.delayOffset*2 + c.writePos)
-		for i := 0; i < ns; i++ {
+		for i := range ns {
 			c.audio[i+c.delayOffset*2+c.writePos] += int16(float32(c.audio[i+c.writePos]) * c.decay)
 		}
 		c.writePos += ns
 	}
-	rem := c.delayOffset*2 - len(c.audio)
-	if rem < 0 {
-		rem = 0
-	}
+	rem := max(c.delayOffset*2-len(c.audio), 0)
 	return rem
 }
 
@@ -69,6 +80,164 @@ func (c *CombAdd) GetAudio(out []int16) int {
 		c.readPos += wanted
 	}
 	return wanted
+}
+
+// allpassFilter implements an allpass filter for diffusion in reverb.
+// Allpass filters delay the signal and scatter reflections without
+// changing the frequency content or amplitude.
+type allpassFilter struct {
+	buffer     []int32
+	bufferSize int
+	index      int
+	gain       int32 // Q15 fixed-point
+}
+
+// newAllpass creates a new allpass filter with the specified delay in samples.
+func newAllpass(delay int) *allpassFilter {
+	return &allpassFilter{
+		buffer:     make([]int32, delay),
+		bufferSize: delay,
+		index:      0,
+		gain:       toFixed(0.5), // Fixed gain for stability
+	}
+}
+
+// process applies the allpass filter to a single sample.
+// Classic allpass formula: output = -input + delayed + gain*output_delayed
+func (a *allpassFilter) process(input int32) int32 {
+	// Read the delayed value from the buffer
+	delayed := a.buffer[a.index]
+
+	// Compute output: -input + delayed_input + gain*delayed_output
+	// The delayed value in buffer already contains the feedback component
+	output := -input + delayed
+
+	// Write new value with feedback into the buffer
+	a.buffer[a.index] = input + fixMul(delayed, a.gain)
+
+	// Advance the circular buffer index
+	a.index = (a.index + 1) % a.bufferSize
+
+	return output
+}
+
+// processBatch applies the allpass filter to a batch of samples.
+// input and output must have the same length. This avoids per-sample
+// modulo and bounds checks by splitting at the circular buffer boundary.
+func (a *allpassFilter) processBatch(input, output []int32) {
+	n := len(input)
+	pos := 0
+	gain := a.gain
+
+	for pos < n {
+		// How many samples until we hit the end of the circular buffer?
+		remaining := a.bufferSize - a.index
+		count := min(remaining, n-pos)
+
+		// Pre-slice to help the compiler eliminate bounds checks
+		buf := a.buffer[a.index : a.index+count]
+		in := input[pos : pos+count]
+		out := output[pos : pos+count]
+		_ = out[len(in)-1] // BCE hint
+
+		for i, inp := range in {
+			delayed := buf[i]
+			out[i] = -inp + delayed
+			buf[i] = inp + fixMul(delayed, gain)
+		}
+
+		a.index += count
+		if a.index >= a.bufferSize {
+			a.index = 0
+		}
+		pos += count
+	}
+}
+
+// combFilter implements a feedback comb filter - the core building block
+// for reverb. It delays the input signal and feeds it back with a decay factor.
+type combFilter struct {
+	buffer      []int32
+	bufferSize  int
+	writePos    int
+	decay       int32 // Q15 fixed-point
+	damping     int32 // Q15 fixed-point, one-pole lowpass coefficient for HF rolloff
+	dampingInv  int32 // Q15 fixed-point, precomputed (1 - damping)
+	filterState int32 // state for the damping filter
+}
+
+// newCombFilter creates a new comb filter with the specified delay, decay, and damping.
+// bufferSize is the delay in samples.
+// damping controls high-frequency rolloff (0.0 = bright, 1.0 = very dark).
+func newCombFilter(delay int, decay, damping float32) *combFilter {
+	return &combFilter{
+		buffer:      make([]int32, delay),
+		bufferSize:  delay,
+		writePos:    0,
+		decay:       toFixed(decay),
+		damping:     toFixed(damping),
+		dampingInv:  toFixed(1.0 - damping),
+		filterState: 0,
+	}
+}
+
+// process applies the comb filter to a single sample.
+// Implements a feedback comb filter with damping: buffer[pos] = input + decay*damped(delayed)
+func (c *combFilter) process(input int32) int32 {
+	// Read the delayed value from the current position
+	delayed := c.buffer[c.writePos]
+
+	// Apply one-pole lowpass filter for damping (simulates HF absorption in rooms)
+	// filterState = damping*filterState + (1-damping)*delayed
+	c.filterState = fixMul(c.filterState, c.damping) + fixMul(delayed, c.dampingInv)
+
+	// Write new value: input + feedback (decayed and damped delayed signal)
+	c.buffer[c.writePos] = input + fixMul(c.filterState, c.decay)
+
+	// Advance write position in circular buffer
+	c.writePos = (c.writePos + 1) % c.bufferSize
+
+	// Output is the delayed signal
+	return delayed
+}
+
+// processBatch applies the comb filter to a batch of samples.
+// input and output must have the same length. This avoids per-sample
+// modulo and bounds checks by splitting at the circular buffer boundary.
+func (c *combFilter) processBatch(input, output []int32) {
+	n := len(input)
+	pos := 0
+	filterState := c.filterState
+	damping := c.damping
+	dampingInv := c.dampingInv
+	decay := c.decay
+
+	for pos < n {
+		// How many samples until we hit the end of the circular buffer?
+		remaining := c.bufferSize - c.writePos
+		count := min(remaining, n-pos)
+
+		// Pre-slice to help the compiler eliminate bounds checks
+		buf := c.buffer[c.writePos : c.writePos+count]
+		in := input[pos : pos+count]
+		out := output[pos : pos+count]
+		_ = out[len(in)-1] // BCE hint
+
+		for i, inp := range in {
+			delayed := buf[i]
+			filterState = fixMul(filterState, damping) + fixMul(delayed, dampingInv)
+			buf[i] = inp + fixMul(filterState, decay)
+			out[i] = delayed
+		}
+
+		c.writePos += count
+		if c.writePos >= c.bufferSize {
+			c.writePos = 0
+		}
+		pos += count
+	}
+
+	c.filterState = filterState
 }
 
 // CombFixed is a Comb filter than uses a fixed size of backing memory
@@ -99,10 +268,8 @@ func NewCombFixed(addSize int, decay float32, delayMs, sampleRate int) *CombFixe
 func (c *CombFixed) InputSamples(in []int16) int {
 	// How much can the buffer take?
 	free := c.bufferSize - c.n
-	n := len(in)
-	if n > free {
-		n = free
-	}
+	n := min(len(in), free)
+
 	// If the buffer is full then stop
 	if n == 0 {
 		return 0
@@ -154,8 +321,15 @@ func (c *CombFixed) applyReverb(ns, off int) {
 	if c.delayPos+ns >= c.bufferSize {
 		n1 := c.bufferSize - c.delayPos
 		n2 := ns - n1
-		for i := 0; i < n1; i++ {
-			c.audio[i+off] += int32(float32(c.audio[i+c.delayPos]) * c.decay)
+
+		// Pre-slice to avoid bounds checks in the loop
+		dst := c.audio[off : off+n1]
+		src := c.audio[c.delayPos : c.delayPos+n1]
+		if len(src) > 0 {
+			_ = dst[len(src)-1] // BCE hint: dst is at least as long as src
+			for i, s := range src {
+				dst[i] += int32(float32(s) * c.decay)
+			}
 		}
 
 		// First part done, setup second part
@@ -164,17 +338,20 @@ func (c *CombFixed) applyReverb(ns, off int) {
 		c.delayPos = 0
 	}
 
-	for i := 0; i < ns; i++ {
-		c.audio[i+off] += int32(float32(c.audio[i+c.delayPos]) * c.decay)
+	// Pre-slice to avoid bounds checks in the loop
+	dst := c.audio[off : off+ns]
+	src := c.audio[c.delayPos : c.delayPos+ns]
+	if len(src) > 0 {
+		_ = dst[len(src)-1] // BCE hint: dst is at least as long as src
+		for i, s := range src {
+			dst[i] += int32(float32(s) * c.decay)
+		}
 	}
 	c.delayPos += ns
 }
 
 func (c *CombFixed) GetAudio(out []int16) int {
-	n := len(out)
-	if n > c.n {
-		n = c.n
-	}
+	n := min(len(out), c.n)
 
 	// If the buffer is empty then stop
 	if n == 0 {
@@ -195,6 +372,199 @@ func (c *CombFixed) GetAudio(out []int16) int {
 	}
 	c.n -= n
 
+	return n
+}
+
+// StereoReverb implements a high-quality Schroeder reverb with multiple
+// parallel comb filters per channel for denser, more natural-sounding reverb.
+type StereoReverb struct {
+	// Left and right channel comb filters (4 per channel)
+	leftCombs  [4]*combFilter
+	rightCombs [4]*combFilter
+
+	// Left and right channel allpass filters (2 per channel)
+	leftAllpass  [2]*allpassFilter
+	rightAllpass [2]*allpassFilter
+
+	// I/O ring buffer for processed audio
+	audio      []int32
+	bufferSize int
+	readPos    int
+	writePos   int
+	n          int // samples currently stored
+
+	// Configuration
+	roomSize float32 // scales the decay of comb filters (only used in constructor)
+	wet      int32   // Q15 fixed-point wet mix level
+	dry      int32   // Q15 fixed-point dry mix level (precomputed 1 - wet)
+}
+
+var _ Reverber = &StereoReverb{}
+
+// NewStereoReverb creates a new stereo reverb with 4 comb filters per channel.
+// addSize provides extra buffer space beyond the minimum required for delays.
+// roomSize ranges from 0.0-1.0 and controls the reverb tail length.
+// damping ranges from 0.0-1.0 and controls high-frequency rolloff.
+// mix ranges from 0.0-1.0 and controls wet/dry blend (0=dry, 1=wet).
+func NewStereoReverb(addSize int, roomSize, damping, mix float32, sampleRate int) *StereoReverb {
+	// Base delay times at 44.1kHz (in samples)
+	// Left and right use different patterns for stereo width
+	leftDelays := [4]int{1557, 1617, 1491, 1422}
+	rightDelays := [4]int{1617, 1557, 1422, 1491}
+
+	// Scale delays based on actual sample rate
+	scaleDelay := func(baseDelay int) int {
+		return (baseDelay * sampleRate) / 44100
+	}
+
+	// Calculate decay from roomSize: range 0.84 (small room) to 0.98 (large hall)
+	decay := 0.84 + (roomSize * 0.14)
+
+	s := &StereoReverb{
+		roomSize: roomSize,
+		wet:      toFixed(mix),
+		dry:      toFixed(1.0 - mix),
+	}
+
+	// Initialize left channel combs
+	for i := range s.leftCombs {
+		delay := scaleDelay(leftDelays[i])
+		s.leftCombs[i] = newCombFilter(delay, decay, damping)
+	}
+
+	// Initialize right channel combs
+	for i := range s.rightCombs {
+		delay := scaleDelay(rightDelays[i])
+		s.rightCombs[i] = newCombFilter(delay, decay, damping)
+	}
+
+	// Allpass delays at 44.1kHz (in samples)
+	allpassDelays := [2]int{556, 441}
+
+	// Initialize left channel allpass filters
+	for i := range s.leftAllpass {
+		delay := scaleDelay(allpassDelays[i])
+		s.leftAllpass[i] = newAllpass(delay)
+	}
+
+	// Initialize right channel allpass filters
+	for i := range s.rightAllpass {
+		delay := scaleDelay(allpassDelays[i])
+		s.rightAllpass[i] = newAllpass(delay)
+	}
+
+	// Calculate I/O buffer size: largest delay + addSize, times 2 for stereo
+	maxDelay := scaleDelay(1617) // largest delay time
+	s.bufferSize = (maxDelay + addSize) * 2
+	s.audio = make([]int32, s.bufferSize)
+
+	return s
+}
+
+// InputSamples feeds stereo interleaved samples into the reverb.
+// Returns the number of samples consumed.
+func (s *StereoReverb) InputSamples(in []int16) int {
+	// How much can the buffer take?
+	free := s.bufferSize - s.n
+	n := min(len(in), free)
+
+	// If buffer is full, stop
+	if n == 0 {
+		return 0
+	}
+
+	// Process samples in pairs (L/R)
+	numPairs := n / 2
+
+	// Deinterleave into separate left/right buffers
+	leftDry := make([]int32, numPairs)
+	rightDry := make([]int32, numPairs)
+	for i := range numPairs {
+		leftDry[i] = int32(in[i*2])
+		rightDry[i] = int32(in[i*2+1])
+	}
+
+	// Process each channel through 4 parallel comb filters and sum.
+	// We reuse a single scratch buffer for each comb's output.
+	combOut := make([]int32, numPairs)
+	leftSum := make([]int32, numPairs)
+	rightSum := make([]int32, numPairs)
+
+	for j := range s.leftCombs {
+		s.leftCombs[j].processBatch(leftDry, combOut)
+		for i, v := range combOut {
+			leftSum[i] += v
+		}
+	}
+	for j := range s.rightCombs {
+		s.rightCombs[j].processBatch(rightDry, combOut)
+		for i, v := range combOut {
+			rightSum[i] += v
+		}
+	}
+
+	// Scale down to prevent overflow (4 combs per channel)
+	// Divide by 4 gives headroom while maintaining good signal level
+	for i := range leftSum {
+		leftSum[i] /= 4
+	}
+	for i := range rightSum {
+		rightSum[i] /= 4
+	}
+
+	// Pass through allpass filters for diffusion (in-place)
+	for j := range s.leftAllpass {
+		s.leftAllpass[j].processBatch(leftSum, leftSum)
+	}
+	for j := range s.rightAllpass {
+		s.rightAllpass[j].processBatch(rightSum, rightSum)
+	}
+
+	// Blend dry/wet and write to ring buffer (interleaved)
+	dry := s.dry
+	wet := s.wet
+	for i := range numPairs {
+		leftOut := fixMul(leftDry[i], dry) + fixMul(leftSum[i], wet)
+		rightOut := fixMul(rightDry[i], dry) + fixMul(rightSum[i], wet)
+
+		s.audio[s.writePos] = leftOut
+		s.audio[s.writePos+1] = rightOut
+
+		s.writePos += 2
+		if s.writePos >= s.bufferSize {
+			s.writePos = 0
+		}
+	}
+
+	samplesConsumed := numPairs * 2
+	s.n += samplesConsumed
+
+	return samplesConsumed
+}
+
+// GetAudio retrieves processed audio with reverb applied.
+// Returns the number of samples written to out.
+func (s *StereoReverb) GetAudio(out []int16) int {
+	n := min(len(out), s.n)
+
+	// If buffer is empty, stop
+	if n == 0 {
+		return 0
+	}
+
+	// Handle circular buffer wraparound
+	if s.readPos+n > s.bufferSize {
+		n1 := s.bufferSize - s.readPos
+		n2 := n - n1
+		copyDownsample(out[:n1], s.audio[s.readPos:s.readPos+n1])
+		copyDownsample(out[n1:n], s.audio[:n2])
+		s.readPos = n2
+	} else {
+		copyDownsample(out[:n], s.audio[s.readPos:s.readPos+n])
+		s.readPos += n
+	}
+
+	s.n -= n
 	return n
 }
 

@@ -356,6 +356,7 @@ func (p *Player) IsPlaying() bool {
 // State returns the current state of the player (song position, channel state, etc.)
 func (p *Player) State() PlayerState {
 	rc := max(p.row, 0)
+
 	state := PlayerState{Order: p.order, Pattern: int(p.Song.Orders[p.order]), Row: rc}
 	state.Notes = make([]ChannelNoteData, p.Channels)
 	state.Channels = make([]ChannelState, p.Channels)
@@ -420,7 +421,7 @@ func (p *Player) NoteDataFor(order, row int) []ChannelNoteData {
 
 	pattern := p.Orders[order]
 	rowDataIdx := row * p.Song.Channels
-	for i := 0; i < p.Channels; i++ {
+	for i := range p.Channels {
 		patnote := &p.Song.patterns[pattern][rowDataIdx]
 
 		note := &nd[i]
@@ -448,7 +449,7 @@ func (p *Player) reset() {
 	p.row = -1
 	p.tickSamplePos = p.samplesPerTick
 
-	for i := 0; i < p.Song.Channels; i++ {
+	for i := range p.Song.Channels {
 		channel := &p.channels[i]
 		channel.sample = -1
 		channel.sampleToPlay = -1
@@ -600,7 +601,7 @@ func (p *Player) sequenceTick() bool {
 
 		loopChannel := -1 // Which channel index has an active loop, -1=no channel
 
-		for i := 0; i < p.Song.Channels; i++ {
+		for i := range p.Song.Channels {
 			channel := &p.channels[i]
 
 			channel.effectCounter = 0
@@ -930,7 +931,7 @@ func (p *Player) sequenceTick() bool {
 		}
 	} else {
 		// channel tick
-		for i := 0; i < p.Song.Channels; i++ {
+		for i := range p.Song.Channels {
 			p.channelTick(&p.channels[i], i, p.tick)
 		}
 	}
@@ -1253,7 +1254,7 @@ func clamp[T cmp.Ordered](x, l, h T) T {
 //lint:ignore U1000 Keep around for debugging
 func dumpChannel(tcur, ns int, out []int16) {
 	fmt.Printf("%d: ", tcur)
-	for i := 0; i < ns; i++ {
+	for i := range ns {
 		a := uint16(out[i*2+0])
 		a = (a&0xFF)<<8 | (a >> 8)
 		b := uint16(out[i*2+1])

@@ -107,6 +107,38 @@ func (a *allpassFilter) process(input int32) int32 {
 	return output
 }
 
+// processBatch applies the allpass filter to a batch of samples.
+// input and output must have the same length. This avoids per-sample
+// modulo and bounds checks by splitting at the circular buffer boundary.
+func (a *allpassFilter) processBatch(input, output []int32) {
+	n := len(input)
+	pos := 0
+
+	for pos < n {
+		// How many samples until we hit the end of the circular buffer?
+		remaining := a.bufferSize - a.index
+		count := min(remaining, n-pos)
+
+		// Pre-slice to help the compiler eliminate bounds checks
+		buf := a.buffer[a.index : a.index+count]
+		in := input[pos : pos+count]
+		out := output[pos : pos+count]
+		_ = out[len(in)-1] // BCE hint
+
+		for i, inp := range in {
+			delayed := buf[i]
+			out[i] = -inp + delayed
+			buf[i] = inp + int32(float32(delayed)*a.gain)
+		}
+
+		a.index += count
+		if a.index >= a.bufferSize {
+			a.index = 0
+		}
+		pos += count
+	}
+}
+
 // combFilter implements a feedback comb filter - the core building block
 // for reverb. It delays the input signal and feeds it back with a decay factor.
 type combFilter struct {
@@ -150,6 +182,42 @@ func (c *combFilter) process(input int32) int32 {
 
 	// Output is the delayed signal
 	return delayed
+}
+
+// processBatch applies the comb filter to a batch of samples.
+// input and output must have the same length. This avoids per-sample
+// modulo and bounds checks by splitting at the circular buffer boundary.
+func (c *combFilter) processBatch(input, output []int32) {
+	n := len(input)
+	pos := 0
+	filterState := c.filterState
+
+	for pos < n {
+		// How many samples until we hit the end of the circular buffer?
+		remaining := c.bufferSize - c.writePos
+		count := min(remaining, n-pos)
+
+		// Pre-slice to help the compiler eliminate bounds checks
+		buf := c.buffer[c.writePos : c.writePos+count]
+		in := input[pos : pos+count]
+		out := output[pos : pos+count]
+		_ = out[len(in)-1] // BCE hint
+
+		for i, inp := range in {
+			delayed := buf[i]
+			filterState = int32(float32(filterState)*c.damping + float32(delayed)*(1.0-c.damping))
+			buf[i] = inp + int32(float32(filterState)*c.decay)
+			out[i] = delayed
+		}
+
+		c.writePos += count
+		if c.writePos >= c.bufferSize {
+			c.writePos = 0
+		}
+		pos += count
+	}
+
+	c.filterState = filterState
 }
 
 // CombFixed is a Comb filter than uses a fixed size of backing memory
@@ -387,46 +455,58 @@ func (s *StereoReverb) InputSamples(in []int16) int {
 
 	// Process samples in pairs (L/R)
 	numPairs := n / 2
-	inPos := 0
 
-	for i := 0; i < numPairs; i++ {
-		// Deinterleave: extract left and right samples (dry signal)
-		leftDry := int32(in[inPos])
-		rightDry := int32(in[inPos+1])
-		inPos += 2
+	// Deinterleave into separate left/right buffers
+	leftDry := make([]int32, numPairs)
+	rightDry := make([]int32, numPairs)
+	for i := range numPairs {
+		leftDry[i] = int32(in[i*2])
+		rightDry[i] = int32(in[i*2+1])
+	}
 
-		// Process left channel through 4 parallel combs and sum
-		leftSum := int32(0)
-		for j := range s.leftCombs {
-			leftSum += s.leftCombs[j].process(leftDry)
+	// Process each channel through 4 parallel comb filters and sum.
+	// We reuse a single scratch buffer for each comb's output.
+	combOut := make([]int32, numPairs)
+	leftSum := make([]int32, numPairs)
+	rightSum := make([]int32, numPairs)
+
+	for j := range s.leftCombs {
+		s.leftCombs[j].processBatch(leftDry, combOut)
+		for i, v := range combOut {
+			leftSum[i] += v
 		}
-
-		// Process right channel through 4 parallel combs and sum
-		rightSum := int32(0)
-		for j := range s.rightCombs {
-			rightSum += s.rightCombs[j].process(rightDry)
+	}
+	for j := range s.rightCombs {
+		s.rightCombs[j].processBatch(rightDry, combOut)
+		for i, v := range combOut {
+			rightSum[i] += v
 		}
+	}
 
-		// Scale down to prevent overflow (8 combs total)
-		// Divide by 4 gives headroom while maintaining good signal level
-		leftWet := leftSum / 4
-		rightWet := rightSum / 4
+	// Scale down to prevent overflow (4 combs per channel)
+	// Divide by 4 gives headroom while maintaining good signal level
+	for i := range leftSum {
+		leftSum[i] /= 4
+	}
+	for i := range rightSum {
+		rightSum[i] /= 4
+	}
 
-		// Pass through allpass filters for diffusion (left channel)
-		for j := range s.leftAllpass {
-			leftWet = s.leftAllpass[j].process(leftWet)
-		}
+	// Pass through allpass filters for diffusion (in-place)
+	for j := range s.leftAllpass {
+		s.leftAllpass[j].processBatch(leftSum, leftSum)
+	}
+	for j := range s.rightAllpass {
+		s.rightAllpass[j].processBatch(rightSum, rightSum)
+	}
 
-		// Pass through allpass filters for diffusion (right channel)
-		for j := range s.rightAllpass {
-			rightWet = s.rightAllpass[j].process(rightWet)
-		}
+	// Blend dry/wet and write to ring buffer (interleaved)
+	dryMix := 1.0 - s.mix
+	wetMix := s.mix
+	for i := range numPairs {
+		leftOut := int32(float32(leftDry[i])*dryMix + float32(leftSum[i])*wetMix)
+		rightOut := int32(float32(rightDry[i])*dryMix + float32(rightSum[i])*wetMix)
 
-		// Blend dry and wet signals: output = (1-mix)*dry + mix*wet
-		leftOut := int32(float32(leftDry)*(1.0-s.mix) + float32(leftWet)*s.mix)
-		rightOut := int32(float32(rightDry)*(1.0-s.mix) + float32(rightWet)*s.mix)
-
-		// Write to ring buffer (interleaved)
 		s.audio[s.writePos] = leftOut
 		s.audio[s.writePos+1] = rightOut
 

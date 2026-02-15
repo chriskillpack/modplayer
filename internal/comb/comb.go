@@ -1,5 +1,19 @@
 package comb
 
+// Fixed-point arithmetic constants. Coefficients in the range [0.0, 1.0] are
+// stored as int32 values scaled by 1<<fixedShift. Multiplications are done in
+// int64 to avoid overflow, then right-shifted back.
+const fixedShift = 15
+
+func toFixed(f float32) int32 {
+	return int32(f * (1 << fixedShift))
+}
+
+// fixMul multiplies an int32 sample by a Q15 fixed-point coefficient.
+func fixMul(x, coeff int32) int32 {
+	return int32((int64(x) * int64(coeff)) >> fixedShift)
+}
+
 // Reverber applies reverb to audio
 type Reverber interface {
 	// InputSamples feeds the reverber with new sample data.
@@ -75,7 +89,7 @@ type allpassFilter struct {
 	buffer     []int32
 	bufferSize int
 	index      int
-	gain       float32
+	gain       int32 // Q15 fixed-point
 }
 
 // newAllpass creates a new allpass filter with the specified delay in samples.
@@ -84,7 +98,7 @@ func newAllpass(delay int) *allpassFilter {
 		buffer:     make([]int32, delay),
 		bufferSize: delay,
 		index:      0,
-		gain:       0.5, // Fixed gain for stability
+		gain:       toFixed(0.5), // Fixed gain for stability
 	}
 }
 
@@ -99,7 +113,7 @@ func (a *allpassFilter) process(input int32) int32 {
 	output := -input + delayed
 
 	// Write new value with feedback into the buffer
-	a.buffer[a.index] = input + int32(float32(delayed)*a.gain)
+	a.buffer[a.index] = input + fixMul(delayed, a.gain)
 
 	// Advance the circular buffer index
 	a.index = (a.index + 1) % a.bufferSize
@@ -113,6 +127,7 @@ func (a *allpassFilter) process(input int32) int32 {
 func (a *allpassFilter) processBatch(input, output []int32) {
 	n := len(input)
 	pos := 0
+	gain := a.gain
 
 	for pos < n {
 		// How many samples until we hit the end of the circular buffer?
@@ -128,7 +143,7 @@ func (a *allpassFilter) processBatch(input, output []int32) {
 		for i, inp := range in {
 			delayed := buf[i]
 			out[i] = -inp + delayed
-			buf[i] = inp + int32(float32(delayed)*a.gain)
+			buf[i] = inp + fixMul(delayed, gain)
 		}
 
 		a.index += count
@@ -145,9 +160,10 @@ type combFilter struct {
 	buffer      []int32
 	bufferSize  int
 	writePos    int
-	decay       float32
-	damping     float32 // one-pole lowpass coefficient for HF rolloff
-	filterState int32   // state for the damping filter
+	decay       int32 // Q15 fixed-point
+	damping     int32 // Q15 fixed-point, one-pole lowpass coefficient for HF rolloff
+	dampingInv  int32 // Q15 fixed-point, precomputed (1 - damping)
+	filterState int32 // state for the damping filter
 }
 
 // newCombFilter creates a new comb filter with the specified delay, decay, and damping.
@@ -158,8 +174,9 @@ func newCombFilter(delay int, decay, damping float32) *combFilter {
 		buffer:      make([]int32, delay),
 		bufferSize:  delay,
 		writePos:    0,
-		decay:       decay,
-		damping:     damping,
+		decay:       toFixed(decay),
+		damping:     toFixed(damping),
+		dampingInv:  toFixed(1.0 - damping),
 		filterState: 0,
 	}
 }
@@ -172,10 +189,10 @@ func (c *combFilter) process(input int32) int32 {
 
 	// Apply one-pole lowpass filter for damping (simulates HF absorption in rooms)
 	// filterState = damping*filterState + (1-damping)*delayed
-	c.filterState = int32(float32(c.filterState)*c.damping + float32(delayed)*(1.0-c.damping))
+	c.filterState = fixMul(c.filterState, c.damping) + fixMul(delayed, c.dampingInv)
 
 	// Write new value: input + feedback (decayed and damped delayed signal)
-	c.buffer[c.writePos] = input + int32(float32(c.filterState)*c.decay)
+	c.buffer[c.writePos] = input + fixMul(c.filterState, c.decay)
 
 	// Advance write position in circular buffer
 	c.writePos = (c.writePos + 1) % c.bufferSize
@@ -191,6 +208,9 @@ func (c *combFilter) processBatch(input, output []int32) {
 	n := len(input)
 	pos := 0
 	filterState := c.filterState
+	damping := c.damping
+	dampingInv := c.dampingInv
+	decay := c.decay
 
 	for pos < n {
 		// How many samples until we hit the end of the circular buffer?
@@ -205,8 +225,8 @@ func (c *combFilter) processBatch(input, output []int32) {
 
 		for i, inp := range in {
 			delayed := buf[i]
-			filterState = int32(float32(filterState)*c.damping + float32(delayed)*(1.0-c.damping))
-			buf[i] = inp + int32(float32(filterState)*c.decay)
+			filterState = fixMul(filterState, damping) + fixMul(delayed, dampingInv)
+			buf[i] = inp + fixMul(filterState, decay)
 			out[i] = delayed
 		}
 
@@ -374,9 +394,9 @@ type StereoReverb struct {
 	n          int // samples currently stored
 
 	// Configuration
-	roomSize float32 // scales the decay of comb filters
-	damping  float32 // high-frequency damping (0.0 = bright, 1.0 = dark)
-	mix      float32 // wet/dry mix (0.0 = all dry, 1.0 = all wet)
+	roomSize float32 // scales the decay of comb filters (only used in constructor)
+	wet      int32   // Q15 fixed-point wet mix level
+	dry      int32   // Q15 fixed-point dry mix level (precomputed 1 - wet)
 }
 
 var _ Reverber = &StereoReverb{}
@@ -402,8 +422,8 @@ func NewStereoReverb(addSize int, roomSize, damping, mix float32, sampleRate int
 
 	s := &StereoReverb{
 		roomSize: roomSize,
-		damping:  damping,
-		mix:      mix,
+		wet:      toFixed(mix),
+		dry:      toFixed(1.0 - mix),
 	}
 
 	// Initialize left channel combs
@@ -501,11 +521,11 @@ func (s *StereoReverb) InputSamples(in []int16) int {
 	}
 
 	// Blend dry/wet and write to ring buffer (interleaved)
-	dryMix := 1.0 - s.mix
-	wetMix := s.mix
+	dry := s.dry
+	wet := s.wet
 	for i := range numPairs {
-		leftOut := int32(float32(leftDry[i])*dryMix + float32(leftSum[i])*wetMix)
-		rightOut := int32(float32(rightDry[i])*dryMix + float32(rightSum[i])*wetMix)
+		leftOut := fixMul(leftDry[i], dry) + fixMul(leftSum[i], wet)
+		rightOut := fixMul(rightDry[i], dry) + fixMul(rightSum[i], wet)
 
 		s.audio[s.writePos] = leftOut
 		s.audio[s.writePos+1] = rightOut

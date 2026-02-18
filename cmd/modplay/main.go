@@ -17,7 +17,7 @@ var (
 	flagBoost    = flag.Int("boost", 1, "volume boost, an integer between 1 and 4")
 	flagStartOrd = flag.Int("start", 0, "starting order in the MOD, clamped to song max")
 	flagLenOrd   = flag.Int("maxpatterns", -1, "Maximum number of orders to play, useful for songs that loop forever")
-	flagReverb   = flag.String("reverb", "light", "choose from light, medium, silly or none")
+	flagReverb   = flag.String("reverb", "light", "choose from light, medium, hall or none")
 	flagMute     = flag.Uint("mute", 0, "bitmask of muted channels, channel 1 in LSB, set bit to mute channel")
 	flagNoUI     = flag.Bool("noui", false, "turn off all UI, mostly useful in development")
 )

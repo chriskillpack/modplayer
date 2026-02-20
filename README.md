@@ -103,10 +103,11 @@ There are two scripts `make_golden.sh` and `check_against_golden.sh`. The first 
 
 You can find tracker files at [The Mod Archive](https://modarchive.org/) but I included a small selection in the `mods` folder that are used to test playback:
 
-`space_debris.mod` - one of the most popular MODs on The Mod Archive\
-`dope.mod` - From the PC demo [DOPE](http://www.pouet.net/prod.php?which=37) by Complex\
 `believe.mod` - From the 64kb PC intro [Believe](http://www.pouet.net/prod.php?which=1151) by Valhalla\
-`caero.s3m` - From the PC demo [Caero](https://www.pouet.net/prod.php?which=2163) by Plant & Electromotive Force
+`caero.s3m` - From the PC demo [Caero](https://www.pouet.net/prod.php?which=2163) by Plant & Electromotive Force\
+`dope.mod` - From the PC demo [DOPE](http://www.pouet.net/prod.php?which=37) by Complex\
+`os2-warp_speed.s3m` - From the PC demo [OS/2 Warp Speed](https://www.pouet.net/prod.php?which=4854) by Valhalla\
+`space_debris.mod` - one of the most popular MODs on The Mod Archive
 
 # Technical Docs
 

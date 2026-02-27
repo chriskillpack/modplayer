@@ -408,7 +408,7 @@ func (ap *AudioPlayer) renderHeader(state modplayer.PlayerState) {
 	fmt.Fprintf(ap.uiWriter, "%*s%s\n", padding, "", headerText.String())
 }
 
-func colorForDb(db, minDb float64) string {
+func colorForDb(db float64) string {
 	if db > -6 {
 		return colorGreen
 	} else if db > -18 {
@@ -429,7 +429,7 @@ func renderPowerMeterHalf(filled, halfWidth int, minDb float64) string {
 			}
 			sb.WriteString("·")
 		} else {
-			c := colorForDb(posDB, minDb)
+			c := colorForDb(posDB)
 			if c != currentColor {
 				sb.WriteString(c)
 				currentColor = c
@@ -455,7 +455,7 @@ func renderPowerMeterHalfReversed(filled, halfWidth int, minDb float64) string {
 			}
 			sb.WriteString("·")
 		} else {
-			c := colorForDb(posDB, minDb)
+			c := colorForDb(posDB)
 			if c != currentColor {
 				sb.WriteString(c)
 				currentColor = c
@@ -538,10 +538,7 @@ func (ap *AudioPlayer) renderInstrumentStatus(state modplayer.PlayerState) {
 
 		// Center the line using a fixed width (64 chars for full line, 32 for single channel)
 		const fullLineWidth = 64
-		padding := (ap.termWidth - fullLineWidth) / 2
-		if padding < 0 {
-			padding = 0
-		}
+		padding := max((ap.termWidth-fullLineWidth)/2, 0)
 		fmt.Fprintf(ap.uiWriter, "%*s%s\n", padding, "", lineText.String())
 	}
 	fmt.Fprintln(ap.uiWriter)

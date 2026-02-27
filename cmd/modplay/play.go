@@ -20,6 +20,7 @@ import (
 	"github.com/chriskillpack/modplayer/internal/comb"
 	"github.com/fatih/color"
 	"github.com/gordonklaus/portaudio"
+	"golang.org/x/term"
 )
 
 var (
@@ -32,9 +33,11 @@ var (
 )
 
 const (
-	escape     = "\x1b["
-	hideCursor = escape + "?25l"
-	showCursor = escape + "?25h"
+	escape      = "\x1b["
+	hideCursor  = escape + "?25l"
+	showCursor  = escape + "?25h"
+	clearScreen = escape + "2J"
+	homePos     = escape + "H"
 
 	colorReset  = "\033[0m"
 	colorRed    = "\033[31m"
@@ -75,6 +78,7 @@ type AudioPlayer struct {
 	lastUIUpdate    time.Time
 	displayMode     displayMode
 	formatter       *noteFormatter
+	termWidth       int
 
 	// Lifecycle management
 	ctx            context.Context
@@ -100,6 +104,14 @@ func NewAudioPlayer(player *modplayer.Player, reverb comb.Reverber, noUI bool) *
 	mode := determineDisplayMode(player.Song.Channels)
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Get terminal width, default to 100 if unable to determine
+	width := 50
+	if fd := int(os.Stdout.Fd()); term.IsTerminal(fd) {
+		if w, _, err := term.GetSize(fd); err == nil && w > 0 {
+			width = w
+		}
+	}
+
 	return &AudioPlayer{
 		player:         player,
 		reverb:         reverb,
@@ -108,6 +120,7 @@ func NewAudioPlayer(player *modplayer.Player, reverb comb.Reverber, noUI bool) *
 		soloChannel:    -1,
 		displayMode:    mode,
 		formatter:      &noteFormatter{mode: mode},
+		termWidth:      width,
 		ctx:            ctx,
 		cancelFn:       cancel,
 		keyboardDoneCh: make(chan struct{}),
@@ -127,8 +140,8 @@ func (ap *AudioPlayer) Run() error {
 	ap.setupSignalHandlers()
 	ap.setupKeyboardHandlers()
 
-	// Hide the cursor
-	fmt.Fprint(ap.uiWriter, hideCursor)
+	// Clear screen, move to home position, and hide cursor
+	fmt.Fprint(ap.uiWriter, clearScreen, homePos, hideCursor)
 
 	// Main render loop
 	ticker := time.NewTicker(33 * time.Millisecond) // ~30 FPS for power meter
@@ -360,14 +373,39 @@ func (ap *AudioPlayer) computeRMS(lraudio []int16) {
 // renderHeader renders the title and playback info
 func (ap *AudioPlayer) renderHeader(state modplayer.PlayerState) {
 	song := ap.player.Song
+
+	// Build the header text without colors first to calculate visible length
+	var plainText strings.Builder
 	if len(song.Title) > 0 {
-		fmt.Fprint(ap.uiWriter, song.Title+" ")
+		plainText.WriteString(song.Title)
+		plainText.WriteString(" ")
 	}
-	fmt.Fprintf(ap.uiWriter, "%s %02X/3F %s %02X/%02X %s %02d %s %3d\n",
+	plainText.WriteString(fmt.Sprintf("row %02X/3F pat %02X/%02X speed %02d bpm %3d",
+		state.Row,
+		state.Order, len(song.Orders),
+		ap.player.Speed,
+		ap.player.Tempo))
+
+	// Build the colored version for display
+	var headerText strings.Builder
+	if len(song.Title) > 0 {
+		headerText.WriteString(song.Title)
+		headerText.WriteString(" ")
+	}
+	headerText.WriteString(fmt.Sprintf("%s %02X/3F %s %02X/%02X %s %02d %s %3d",
 		blue("row"), state.Row,
 		blue("pat"), state.Order, len(song.Orders),
 		blue("speed"), ap.player.Speed,
-		blue("bpm"), ap.player.Tempo)
+		blue("bpm"), ap.player.Tempo))
+
+	// Calculate padding for centering using the plain text length
+	headerLen := len(plainText.String())
+	padding := (ap.termWidth - headerLen) / 2
+	if padding < 0 {
+		padding = 0
+	}
+
+	fmt.Fprintf(ap.uiWriter, "%*s%s\n", padding, "", headerText.String())
 }
 
 func colorForDb(db, minDb float64) string {
@@ -443,7 +481,8 @@ func (ap *AudioPlayer) renderPowerMeter() {
 	dbL := max(minDB, 20*math.Log10(float64(rmsL)/32768.0))
 	dbR := max(minDB, 20*math.Log10(float64(rmsR)/32768.0))
 
-	const width = 100
+	// Use terminal width for power meter
+	width := ap.termWidth
 	halfWidth := width / 2
 
 	filledL := int((dbL - minDB) / (-minDB) * float64(halfWidth))

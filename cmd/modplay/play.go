@@ -499,7 +499,13 @@ func (ap *AudioPlayer) renderPowerMeter() {
 // renderInstrumentStatus shows which instruments are playing on each channel
 func (ap *AudioPlayer) renderInstrumentStatus(state modplayer.PlayerState) {
 	song := ap.player.Song
-	for i, ch := range state.Channels {
+
+	// Process channels in pairs for centering
+	for i := 0; i < len(state.Channels); i += 2 {
+		var lineText strings.Builder
+
+		// First channel in the pair
+		ch := state.Channels[i]
 		tc := ' '
 		if state.Order == ch.TrigOrder && state.Row == ch.TrigRow {
 			tc = '■'
@@ -507,15 +513,36 @@ func (ap *AudioPlayer) renderInstrumentStatus(state modplayer.PlayerState) {
 			tc = '□'
 		}
 		outs := fmt.Sprintf("%2d%c ", i+1, tc)
-
 		si := ch.Instrument
 		if si != -1 {
 			outs += song.Samples[si].Name
 		}
-		fmt.Fprintf(ap.uiWriter, "%-32s", outs)
-		if i&1 == 1 {
-			fmt.Fprintln(ap.uiWriter)
+		lineText.WriteString(fmt.Sprintf("%-32s", outs))
+
+		// Second channel in the pair (if it exists)
+		if i+1 < len(state.Channels) {
+			ch2 := state.Channels[i+1]
+			tc2 := ' '
+			if state.Order == ch2.TrigOrder && state.Row == ch2.TrigRow {
+				tc2 = '■'
+			} else if ch2.Instrument != -1 {
+				tc2 = '□'
+			}
+			outs2 := fmt.Sprintf("%2d%c ", i+2, tc2)
+			si2 := ch2.Instrument
+			if si2 != -1 {
+				outs2 += song.Samples[si2].Name
+			}
+			lineText.WriteString(fmt.Sprintf("%-32s", outs2))
 		}
+
+		// Center the line using a fixed width (64 chars for full line, 32 for single channel)
+		const fullLineWidth = 64
+		padding := (ap.termWidth - fullLineWidth) / 2
+		if padding < 0 {
+			padding = 0
+		}
+		fmt.Fprintf(ap.uiWriter, "%*s%s\n", padding, "", lineText.String())
 	}
 	fmt.Fprintln(ap.uiWriter)
 	fmt.Fprintln(ap.uiWriter)

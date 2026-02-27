@@ -477,12 +477,12 @@ func (ap *AudioPlayer) renderPowerMeter() {
 	rmsR := math.Float32frombits(br)
 
 	// Convert power to decibels
-	const minDB = -60.0
+	const minDB = -40.0
 	dbL := max(minDB, 20*math.Log10(float64(rmsL)/32768.0))
 	dbR := max(minDB, 20*math.Log10(float64(rmsR)/32768.0))
 
-	// Use terminal width for power meter
-	width := ap.termWidth
+	// Use terminal width for power meter, accounting for brackets
+	width := ap.termWidth - 4 // Reserve 2 chars for brackets on each half
 	halfWidth := width / 2
 
 	filledL := int((dbL - minDB) / (-minDB) * float64(halfWidth))
@@ -493,7 +493,7 @@ func (ap *AudioPlayer) renderPowerMeter() {
 	leftBar := renderPowerMeterHalf(filledL, halfWidth, minDB)
 	rightBar := renderPowerMeterHalfReversed(filledR, halfWidth, minDB)
 
-	fmt.Fprintln(ap.uiWriter, leftBar+rightBar)
+	fmt.Fprintf(ap.uiWriter, "[%s][%s]\n", leftBar, rightBar)
 }
 
 // renderInstrumentStatus shows which instruments are playing on each channel

@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -32,6 +35,11 @@ const (
 	escape     = "\x1b["
 	hideCursor = escape + "?25l"
 	showCursor = escape + "?25h"
+
+	colorReset  = "\033[0m"
+	colorRed    = "\033[31m"
+	colorGreen  = "\033[32m"
+	colorYellow = "\033[33m"
 )
 
 const (
@@ -39,7 +47,7 @@ const (
 	audioBufferSize   = 756 / 2
 	patternRowsBefore = 4
 	patternRowsAfter  = 4
-	uiLineCount       = 13
+	uiLineCount       = 15
 )
 
 type displayMode int
@@ -57,11 +65,14 @@ type AudioPlayer struct {
 	stream  *portaudio.Stream
 	scratch []int16
 
+	audioRMS atomic.Uint64
+
 	// UI state
 	uiWriter        io.Writer
 	selectedChannel int
 	soloChannel     int
 	lastState       modplayer.PlayerState
+	lastUIUpdate    time.Time
 	displayMode     displayMode
 	formatter       *noteFormatter
 
@@ -120,18 +131,34 @@ func (ap *AudioPlayer) Run() error {
 	fmt.Fprint(ap.uiWriter, hideCursor)
 
 	// Main render loop
+	ticker := time.NewTicker(33 * time.Millisecond) // ~30 FPS for power meter
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ap.ctx.Done():
 			goto exit
-		default:
-		}
+		case <-ticker.C:
+			state := ap.player.State()
+			stateChanged := shouldUpdateUI(ap.lastState, state)
 
-		state := ap.player.State()
+			// Save cursor position before rendering
+			fmt.Fprint(ap.uiWriter, escape+"s")
 
-		if shouldUpdateUI(ap.lastState, state) {
-			ap.renderUI(state)
-			ap.lastState = state
+			// Always render header and power meter for smooth updates
+			ap.renderHeader(state)
+			ap.renderPowerMeter()
+
+			// Only render the rest when state changes
+			if stateChanged {
+				ap.renderInstrumentStatus(state)
+				ap.renderChannelHeaders()
+				ap.renderPatternRows(state)
+				ap.lastState = state
+			}
+
+			// Restore cursor position after rendering
+			fmt.Fprint(ap.uiWriter, escape+"u")
 		}
 	}
 
@@ -190,6 +217,8 @@ func (ap *AudioPlayer) streamCallback(out []int16) {
 		// paused (we are still pushing PCM data to the audio device).
 		clear(sc)
 	}
+
+	ap.computeRMS(sc)
 
 	ap.reverb.InputSamples(sc)
 	n := ap.reverb.GetAudio(out)
@@ -298,9 +327,10 @@ func (ap *AudioPlayer) Stop() {
 	})
 }
 
-// renderUI renders the complete UI
+// renderUI renders the complete UI (used for initial render)
 func (ap *AudioPlayer) renderUI(state modplayer.PlayerState) {
 	ap.renderHeader(state)
+	ap.renderPowerMeter()
 	ap.renderInstrumentStatus(state)
 	ap.renderChannelHeaders()
 	ap.renderPatternRows(state)
@@ -308,6 +338,23 @@ func (ap *AudioPlayer) renderUI(state modplayer.PlayerState) {
 	// Move cursor back to the top
 	ncl := len(state.Channels) / 2
 	fmt.Fprintf(ap.uiWriter, escape+"%dF", uiLineCount+ncl)
+}
+
+func (ap *AudioPlayer) computeRMS(lraudio []int16) {
+	var sumL, sumR float64
+	for i := 0; i < len(lraudio); i += 2 {
+		l := float64(lraudio[i])
+		r := float64(lraudio[i+1])
+		sumL += l * l
+		sumR += r * r
+	}
+	n := float64(len(lraudio) / 2)
+	rmsL := float32(math.Sqrt(sumL / n))
+	rmsR := float32(math.Sqrt(sumR / n))
+
+	bl := math.Float32bits(rmsL)
+	br := math.Float32bits(rmsR)
+	ap.audioRMS.Store(uint64(bl)<<32 | uint64(br))
 }
 
 // renderHeader renders the title and playback info
@@ -321,6 +368,93 @@ func (ap *AudioPlayer) renderHeader(state modplayer.PlayerState) {
 		blue("pat"), state.Order, len(song.Orders),
 		blue("speed"), ap.player.Speed,
 		blue("bpm"), ap.player.Tempo)
+}
+
+func colorForDb(db, minDb float64) string {
+	if db > -6 {
+		return colorGreen
+	} else if db > -18 {
+		return colorYellow
+	}
+	return colorRed
+}
+
+func renderPowerMeterHalf(filled, halfWidth int, minDb float64) string {
+	var sb strings.Builder
+	currentColor := ""
+	for i := range halfWidth {
+		posDB := minDb + (float64(i)/float64(halfWidth))*(-minDb)
+		if i < halfWidth-filled {
+			if currentColor != "" {
+				sb.WriteString(colorReset)
+				currentColor = ""
+			}
+			sb.WriteString("·")
+		} else {
+			c := colorForDb(posDB, minDb)
+			if c != currentColor {
+				sb.WriteString(c)
+				currentColor = c
+			}
+			sb.WriteString("|")
+		}
+	}
+	if currentColor != "" {
+		sb.WriteString(colorReset)
+	}
+	return sb.String()
+}
+
+func renderPowerMeterHalfReversed(filled, halfWidth int, minDb float64) string {
+	var sb strings.Builder
+	currentColor := ""
+	for i := halfWidth - 1; i >= 0; i-- {
+		posDB := minDb + (float64(i)/float64(halfWidth))*(-minDb)
+		if i < halfWidth-filled {
+			if currentColor != "" {
+				sb.WriteString(colorReset)
+				currentColor = ""
+			}
+			sb.WriteString("·")
+		} else {
+			c := colorForDb(posDB, minDb)
+			if c != currentColor {
+				sb.WriteString(c)
+				currentColor = c
+			}
+			sb.WriteString("|")
+		}
+	}
+	if currentColor != "" {
+		sb.WriteString(colorReset)
+	}
+	return sb.String()
+}
+
+func (ap *AudioPlayer) renderPowerMeter() {
+	x := ap.audioRMS.Load()
+	bl := uint32(x >> 32)
+	br := uint32(x)
+	rmsL := math.Float32frombits(bl)
+	rmsR := math.Float32frombits(br)
+
+	// Convert power to decibels
+	const minDB = -60.0
+	dbL := max(minDB, 20*math.Log10(float64(rmsL)/32768.0))
+	dbR := max(minDB, 20*math.Log10(float64(rmsR)/32768.0))
+
+	const width = 100
+	halfWidth := width / 2
+
+	filledL := int((dbL - minDB) / (-minDB) * float64(halfWidth))
+	filledR := int((dbR - minDB) / (-minDB) * float64(halfWidth))
+	filledL = max(0, min(filledL, halfWidth))
+	filledR = max(0, min(filledR, halfWidth))
+
+	leftBar := renderPowerMeterHalf(filledL, halfWidth, minDB)
+	rightBar := renderPowerMeterHalfReversed(filledR, halfWidth, minDB)
+
+	fmt.Fprintln(ap.uiWriter, leftBar+rightBar)
 }
 
 // renderInstrumentStatus shows which instruments are playing on each channel

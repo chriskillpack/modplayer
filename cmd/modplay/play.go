@@ -24,11 +24,10 @@ import (
 )
 
 var (
-	white   = color.New(color.FgWhite).SprintfFunc()
 	cyan    = color.New(color.FgCyan).SprintfFunc()
 	magenta = color.New(color.FgMagenta).SprintfFunc()
 	yellow  = color.New(color.FgYellow).SprintfFunc()
-	blue    = color.New(color.FgHiBlue).SprintFunc()
+	blue    = color.New(color.FgHiBlue).SprintfFunc()
 	green   = color.New(color.FgGreen).SprintfFunc()
 )
 
@@ -79,6 +78,7 @@ type AudioPlayer struct {
 	displayMode     displayMode
 	formatter       *noteFormatter
 	termWidth       int
+	layout          channelLayout
 
 	// Lifecycle management
 	ctx            context.Context
@@ -94,6 +94,14 @@ type noteFormatter struct {
 	mode displayMode
 }
 
+// channelLayout describes how to display channels on screen
+type channelLayout struct {
+	displayMode    displayMode
+	channelWidth   int // Width in characters per channel
+	maxChannels    int // Maximum channels that can fit
+	separatorWidth int // Width of separator between channels
+}
+
 // NewAudioPlayer creates a new AudioPlayer instance
 func NewAudioPlayer(player *modplayer.Player, reverb comb.Reverber, noUI bool) *AudioPlayer {
 	var uiw io.Writer = os.Stdout
@@ -101,16 +109,16 @@ func NewAudioPlayer(player *modplayer.Player, reverb comb.Reverber, noUI bool) *
 		uiw = io.Discard
 	}
 
-	mode := determineDisplayMode(player.Song.Channels)
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// Get terminal width, default to 100 if unable to determine
-	width := 50
+	// Get terminal width, default to 80 if unable to determine
+	width := 80
 	if fd := int(os.Stdout.Fd()); term.IsTerminal(fd) {
 		if w, _, err := term.GetSize(fd); err == nil && w > 0 {
 			width = w
 		}
 	}
+
+	layout := computeChannelLayout(player.Song.Channels, width)
+	ctx, cancel := context.WithCancel(context.Background())
 
 	return &AudioPlayer{
 		player:         player,
@@ -118,9 +126,10 @@ func NewAudioPlayer(player *modplayer.Player, reverb comb.Reverber, noUI bool) *
 		scratch:        make([]int16, scratchBufferSize),
 		uiWriter:       uiw,
 		soloChannel:    -1,
-		displayMode:    mode,
-		formatter:      &noteFormatter{mode: mode},
+		displayMode:    layout.displayMode,
+		formatter:      &noteFormatter{mode: layout.displayMode},
 		termWidth:      width,
+		layout:         layout,
 		ctx:            ctx,
 		cancelFn:       cancel,
 		keyboardDoneCh: make(chan struct{}),
@@ -548,15 +557,49 @@ func (ap *AudioPlayer) renderInstrumentStatus(state modplayer.PlayerState) {
 // renderChannelHeaders renders the channel number headers
 func (ap *AudioPlayer) renderChannelHeaders() {
 	song := ap.player.Song
-	fmt.Fprint(ap.uiWriter, "        ")
-	for i := range min(song.Channels, 8) {
-		const chanstr = "%2d       "
-		if i == ap.selectedChannel {
-			fmt.Fprint(ap.uiWriter, green(chanstr, i+1))
-			continue
-		}
-		fmt.Fprintf(ap.uiWriter, chanstr, i+1)
+
+	// Calculate content width for centering (including row prefix and suffix)
+	const rowPrefixWidth = 4 // "    " or ">>> "
+	const rowSuffixWidth = 4 // "    " or " <<<"
+	maxChannels := min(song.Channels, ap.layout.maxChannels)
+	contentWidth := rowPrefixWidth + maxChannels*ap.layout.channelWidth + rowSuffixWidth
+	if maxChannels > 1 {
+		contentWidth += (maxChannels - 1) * ap.layout.separatorWidth
 	}
+	if song.Channels > maxChannels {
+		contentWidth += 4 // " ..."
+	}
+
+	// Center the headers
+	leftPadding := max((ap.termWidth-contentWidth)/2, 0)
+	fmt.Fprint(ap.uiWriter, strings.Repeat(" ", leftPadding))
+	fmt.Fprint(ap.uiWriter, "    ")
+
+	for i := range maxChannels {
+		// Format channel number to fit within channel width
+		chanWidth := ap.layout.channelWidth
+		format := fmt.Sprintf("%%-%dd", chanWidth)
+
+		if i == ap.selectedChannel {
+			fmt.Fprint(ap.uiWriter, green(format, i+1))
+		} else {
+			fmt.Fprintf(ap.uiWriter, format, i+1)
+		}
+
+		// Add separator except after last channel
+		if i < maxChannels-1 {
+			fmt.Fprint(ap.uiWriter, "|")
+		}
+	}
+
+	// Show overflow indicator if there are more channels
+	if song.Channels > maxChannels {
+		fmt.Fprint(ap.uiWriter, " ...")
+	}
+
+	// Add suffix spacing to align with data rows
+	fmt.Fprint(ap.uiWriter, "    ")
+
 	fmt.Fprintln(ap.uiWriter)
 }
 
@@ -575,6 +618,23 @@ func (ap *AudioPlayer) renderNoteRow(order, row int, isCurrent bool) {
 		return
 	}
 
+	// Calculate content width for centering (including row prefix and suffix)
+	// Always include suffix width in calculation so all rows align
+	const rowPrefixWidth = 4 // "    " or ">>> "
+	const rowSuffixWidth = 4 // " <<<" when current
+	maxChannels := min(len(nd), ap.layout.maxChannels)
+	contentWidth := rowPrefixWidth + maxChannels*ap.layout.channelWidth + rowSuffixWidth
+	if maxChannels > 1 {
+		contentWidth += (maxChannels - 1) * ap.layout.separatorWidth
+	}
+	if len(nd) > maxChannels {
+		contentWidth += 4 // " ..."
+	}
+
+	// Center the content
+	leftPadding := max((ap.termWidth-contentWidth)/2, 0)
+	fmt.Fprint(ap.uiWriter, strings.Repeat(" ", leftPadding))
+
 	// Row prefix
 	if isCurrent {
 		fmt.Fprint(ap.uiWriter, ">>> ")
@@ -583,11 +643,6 @@ func (ap *AudioPlayer) renderNoteRow(order, row int, isCurrent bool) {
 	}
 
 	// Note data for each channel
-	maxChannels := 8
-	if ap.displayMode == displayModeWide {
-		maxChannels = 4
-	}
-
 	for ni, n := range nd {
 		if ni >= maxChannels {
 			if ni == maxChannels {
@@ -596,64 +651,180 @@ func (ap *AudioPlayer) renderNoteRow(order, row int, isCurrent bool) {
 			break
 		}
 
-		ap.formatter.formatNote(ni, n, ap.uiWriter)
+		ap.formatter.formatNote(n, ap.uiWriter)
+
+		// Add separator except after last channel
+		if ni < maxChannels-1 {
+			fmt.Fprint(ap.uiWriter, "|")
+		}
 	}
 
-	// Row suffix
+	// Row suffix (always print spaces to maintain alignment)
 	if isCurrent {
 		fmt.Fprint(ap.uiWriter, " <<<")
+	} else {
+		fmt.Fprint(ap.uiWriter, "    ")
 	}
 	fmt.Fprintln(ap.uiWriter)
 }
 
 // formatNote formats and writes a single note to the writer
-func (nf *noteFormatter) formatNote(ni int, n modplayer.ChannelNoteData, w io.Writer) {
+func (nf *noteFormatter) formatNote(n modplayer.ChannelNoteData, w io.Writer) {
 	switch nf.mode {
 	case displayModeWide:
-		nf.formatWide(ni, n, w)
+		nf.formatWide(n, w)
 	case displayModeNarrow:
-		nf.formatNarrow(ni, n, w)
+		nf.formatNarrow(n, w)
 	case displayModeCompact:
-		nf.formatCompact(ni, n, w)
+		nf.formatCompact(n, w)
 	}
 }
 
 // formatWide formats a note in wide display mode (shows all details)
-func (nf *noteFormatter) formatWide(ni int, n modplayer.ChannelNoteData, w io.Writer) {
-	fmt.Fprint(w, white("%s", n.Note), " ", cyan("%2X", n.Instrument), " ")
+func (nf *noteFormatter) formatWide(n modplayer.ChannelNoteData, w io.Writer) {
+	note := n.Note
+	if note == "   " {
+		note = "..."
+	}
+	fmt.Fprint(w, blue("%s", note), " ", cyan("%2X", n.Instrument), " ")
 	if n.Volume != 0xFF {
 		fmt.Fprint(w, green("%02X", n.Volume))
 	} else {
 		fmt.Fprint(w, green(".."))
 	}
 	fmt.Fprint(w, " ", magenta("%02X", n.Effect), yellow("%02X", n.Param))
-
-	if ni < 3 {
-		fmt.Fprint(w, "|")
-	}
 }
 
 // formatNarrow formats a note in narrow display mode (omits instrument and volume)
-func (nf *noteFormatter) formatNarrow(ni int, n modplayer.ChannelNoteData, w io.Writer) {
-	fmt.Fprint(w, white("%s", n.Note), " ", magenta("%02X", n.Effect), yellow("%02X", n.Param))
-	if ni < 7 {
-		fmt.Fprint(w, "|")
+func (nf *noteFormatter) formatNarrow(n modplayer.ChannelNoteData, w io.Writer) {
+	note := n.Note
+	if note == "   " {
+		note = "..."
+	}
+	fmt.Fprint(w, blue("%s", note), " ", magenta("%02X", n.Effect), yellow("%02X", n.Param))
+}
+
+// formatCompact formats a note in compact display mode (note only)
+func (nf *noteFormatter) formatCompact(n modplayer.ChannelNoteData, w io.Writer) {
+	note := n.Note
+	if note == "   " {
+		note = "..."
+	}
+	fmt.Fprint(w, blue("%s", note))
+}
+
+// computeChannelLayout determines the optimal display layout based on channel count and terminal width
+// Priority: Try to show ALL channels. Use the widest mode that fits all channels.
+// If all channels won't fit even in compact mode, show as many as possible.
+func computeChannelLayout(channels, termWidth int) channelLayout {
+	// Account for row prefix (">>> " or "    "), suffix (" <<<" or "    "), and margin
+	const rowPrefixWidth = 4
+	const rowSuffixWidth = 4
+	const minMargin = 4
+
+	availableWidth := termWidth - rowPrefixWidth - rowSuffixWidth - minMargin
+
+	// Try each display mode from widest to narrowest
+	// Goal: fit ALL channels in the widest mode possible
+	modes := []struct {
+		mode           displayMode
+		channelWidth   int
+		separatorWidth int
+	}{
+		{displayModeWide, 14, 1},   // "C-5 01 40 0A00|" = 15 chars (14 + 1 separator)
+		{displayModeNarrow, 8, 1},  // "C-5 0A00|" = 9 chars (8 + 1 separator)
+		{displayModeCompact, 3, 1}, // "C-5|" = 4 chars (3 + 1 separator)
+	}
+
+	for _, m := range modes {
+		// Calculate width needed for ALL channels
+		widthNeeded := 0
+		for i := range channels {
+			widthNeeded += m.channelWidth
+			if i < channels-1 {
+				widthNeeded += m.separatorWidth
+			}
+		}
+
+		// If all channels fit in this mode, use it
+		if widthNeeded <= availableWidth {
+			return channelLayout{
+				displayMode:    m.mode,
+				channelWidth:   m.channelWidth,
+				maxChannels:    channels,
+				separatorWidth: m.separatorWidth,
+			}
+		}
+	}
+
+	// If even compact mode can't fit all channels, show as many as we can in compact mode
+	// Minimum display is just the note (3 chars) - this is our floor
+	compactWidth := 3
+	separatorWidth := 1
+
+	maxChannels := 0
+	widthNeeded := 0
+	for i := range channels {
+		channelAndSep := compactWidth
+		if i < channels-1 {
+			channelAndSep += separatorWidth
+		}
+
+		if widthNeeded+channelAndSep <= availableWidth {
+			maxChannels++
+			widthNeeded += channelAndSep
+		} else {
+			break
+		}
+	}
+
+	return channelLayout{
+		displayMode:    displayModeCompact,
+		channelWidth:   compactWidth,
+		maxChannels:    maxChannels,
+		separatorWidth: separatorWidth,
 	}
 }
 
-// formatCompact formats a note in compact display mode
-func (nf *noteFormatter) formatCompact(ni int, n modplayer.ChannelNoteData, w io.Writer) {
-	// Not implemented yet
+// getChannelWidth returns the width in characters for a channel in the given display mode
+func getChannelWidth(mode displayMode) int {
+	switch mode {
+	case displayModeWide:
+		return 14 // "C-5 01 40 0A00" (note, space, inst, space, vol, space, effect+param)
+	case displayModeNarrow:
+		return 8 // "C-5 0A00" (note, space, effect+param)
+	case displayModeCompact:
+		return 3 // "C-5" (note only)
+	default:
+		return 8
+	}
 }
 
-// determineDisplayMode selects the appropriate display mode based on channel count
-func determineDisplayMode(channels int) displayMode {
-	if channels <= 4 {
-		return displayModeWide
-	} else if channels <= 8 {
-		return displayModeNarrow
+// getMaxChannelsForWidth computes how many channels can fit in the available width
+func getMaxChannelsForWidth(mode displayMode, availableWidth int) int {
+	channelWidth := getChannelWidth(mode)
+	separatorWidth := 1 // "|"
+
+	if availableWidth <= 0 {
+		return 0
 	}
-	return displayModeNarrow
+
+	// First channel doesn't need leading separator
+	maxChannels := 1
+	usedWidth := channelWidth
+
+	// Try to fit more channels
+	for {
+		nextChannelWidth := separatorWidth + channelWidth
+		if usedWidth+nextChannelWidth <= availableWidth {
+			maxChannels++
+			usedWidth += nextChannelWidth
+		} else {
+			break
+		}
+	}
+
+	return maxChannels
 }
 
 // shouldUpdateUI determines if the UI needs to be redrawn
